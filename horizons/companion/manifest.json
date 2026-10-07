@@ -1,22 +1,58 @@
 {
   "format_version": 2,
   "header": {
-    "name": "Bedrock Horizons — World Companion (Experimental)",
+    "name": "Bedrock Horizons \u2014 World Companion (Experimental)",
     "description": "Owner-controlled distant surface sampling for the Bedrock Horizons client bridge. Generation is disabled until an administrator enables it.",
     "uuid": "83c64463-fd20-4c8a-b4c2-f32efeb1bed7",
-    "version": [0, 1, 0],
-    "min_engine_version": [1, 26, 50]
+    "version": [
+      0,
+      1,
+      1
+    ],
+    "min_engine_version": [
+      1,
+      26,
+      50
+    ]
   },
   "modules": [
+    {
+      "type": "data",
+      "uuid": "cb17f664-9d45-4f9b-9e00-f43de8d1d37a",
+      "version": [
+        0,
+        1,
+        1
+      ]
+    },
     {
       "type": "script",
       "language": "javascript",
       "uuid": "c5e42a35-0194-49cd-a785-6ccb17cc4c1b",
-      "version": [0, 1, 0],
+      "version": [
+        0,
+        1,
+        1
+      ],
       "entry": "scripts/main.js"
     }
   ],
   "dependencies": [
-    {"module_name": "@minecraft/server", "version": "2.6.0"}
+    {
+      "module_name": "@minecraft/server",
+      "version": "2.6.0"
+    },
+    {
+      "module_name": "@minecraft/server-ui",
+      "version": "2.0.0"
+    },
+    {
+      "uuid": "e7365f57-2735-4940-9fcb-a3a306467d78",
+      "version": [
+        0,
+        1,
+        1
+      ]
+    }
   ]
 }

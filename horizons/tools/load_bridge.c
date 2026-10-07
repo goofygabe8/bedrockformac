@@ -29,6 +29,12 @@ int wmain(int argc, wchar_t** argv) {
     if (argc != 2) { fwprintf(stderr, L"Usage: load-bridge.exe DLL_PATH\n"); return 2; }
     DWORD pid = minecraft_pid();
     if (!pid) { fwprintf(stderr, L"Exactly one Minecraft game must be running in this launcher.\n"); return 3; }
+    if (!wcscmp(argv[1], L"--status")) {
+        wprintf(L"Native client: %ls\nScript engine: %ls\n",
+            module_base(pid, L"Latite.dll") ? L"loaded" : L"not loaded",
+            module_base(pid, L"ChakraCore.dll") ? L"loaded" : L"not loaded");
+        return 0;
+    }
     if (module_base(pid, L"Latite.dll")) { fwprintf(stderr, L"The native client is already loaded. Restart Minecraft before replacing it.\n"); return 4; }
     wchar_t path[32768]; DWORD length = GetFullPathNameW(argv[1], 32768, path, NULL);
     if (!length || length >= 32768 || GetFileAttributesW(path) == INVALID_FILE_ATTRIBUTES) return 5;

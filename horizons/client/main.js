@@ -12,9 +12,12 @@ function randomId() {
   var id = ""; for (var i = 0; i < 32; i++) id += Math.floor(Math.random() * 16).toString(16); return id;
 }
 function notice(text) { clientMessage("[Bedrock Horizons] " + text); }
-function saveSettings() {
+function saveSettings(sync) {
   try { fs.write("settings.json", codec.asciiBytes(JSON.stringify({settings: settings, aliases: aliases}))); }
   catch (_) { notice("Settings could not be saved."); }
+  if (sync !== false && companion && !helloDeadline && world.exists()) {
+    game.executeCommand("/bhl:settings " + [settings.enabled, settings.distance, settings.near, settings.quads, settings.approximate, settings.skirts].join(" "));
+  }
 }
 try {
   if (fs.exists("settings.json")) {
@@ -61,7 +64,7 @@ function connect() {
   if (!world.exists() || !position()) { notice("Join a world before connecting the companion."); return; }
   companion = true; generation = false; nonce = randomId(); helloAt = Date.now(); helloDeadline = helloAt + 10000;
   request = null; assemblies.clear(); samples = null; status = "Connecting to the world companion";
-  game.executeCommand("/bhl:hello 0.1.0 " + nonce);
+  game.executeCommand("/bhl:hello 0.1.1 " + nonce);
 }
 function protocol(event) {
   // Targeted server raw/system/object messages only; never consume ordinary player chat.
@@ -87,6 +90,22 @@ function protocol(event) {
     lastMeshRevision = -1; return;
   }
   var part = /^BHL1 TILE 1 ([0-9a-f]{32}) ([0-9a-f]{32}) ([1-9][0-9]{0,9}) ([0-7]) ([1-8]) ([A-Za-z0-9+/=]{1,768})$/.exec(text);
+  var requestOptions = /^BHL1 REQUEST_SETTINGS 1 ([0-9a-f]{32}) ([0-9a-f]{32})$/.exec(text);
+  if (requestOptions) {
+    if (requestOptions[1] !== worldId || requestOptions[2] !== nonce || helloDeadline) return;
+    event.cancel = true; saveSettings(); return;
+  }
+  var options = /^BHL1 SETTINGS 1 ([0-9a-f]{32}) ([0-9a-f]{32}) ([01]) ([0-9]{3,4}) ([0-9]{2,4}) ([0-9]{3,4}) ([01]) ([01])$/.exec(text);
+  if (options) {
+    if (options[1] !== worldId || options[2] !== nonce || helloDeadline) return;
+    var distance = Number(options[4]), near = Number(options[5]), quads = Number(options[6]);
+    if (distance < 128 || distance > 1024 || near < 16 || near >= distance || quads < 128 || quads > 2048) return;
+    event.cancel = true;
+    settings.enabled = options[3] === "1"; settings.distance = distance; settings.near = near;
+    settings.quads = quads; settings.approximate = options[7] === "1"; settings.skirts = options[8] === "1";
+    samples = null; renderMesh = []; lastMeshRevision = -1;
+    saveSettings(false); notice("Settings updated from your world settings book."); return;
+  }
   if (!part || part[1] !== worldId || part[2] !== nonce || !request) return;
   var sequence = Number(part[3]), index = Number(part[4]), count = Number(part[5]);
   if (!Number.isSafeInteger(sequence) || sequence > 2147483647 || index >= count) return;
@@ -133,7 +152,7 @@ function selectRequest(p) {
     game.executeCommand("/bhl:request " + best.x + " " + best.z + " " + step);
   } else if (now - helloAt > 30000) {
     // Keep a quiet opted-in session alive without interrupting a tile transfer.
-    helloAt = now; game.executeCommand("/bhl:hello 0.1.0 " + nonce);
+    helloAt = now; game.executeCommand("/bhl:hello 0.1.1 " + nonce);
   }
 }
 function beginSampling(p) {
@@ -193,6 +212,9 @@ function tick() {
     notice("The companion did not respond. Its pack must be active in this world.");
   }
   if (request && now - request.created > 45000) { request = null; assemblies.clear(); status = "Terrain request timed out"; }
+  if (companion && !helloDeadline && !request && now - helloAt > 30000) {
+    helloAt = now; game.executeCommand("/bhl:hello 0.1.1 " + nonce);
+  }
   assemblies.forEach(function(a, key) { if (now - a.created > 10000) assemblies.delete(key); });
   if (!settings.enabled || dimensionId < 0) return;
   if (ticks % 20 === 0) selectRequest(p);
@@ -211,8 +233,16 @@ function command(args) {
       (persistentWorld ? "Persistent world cache." : "Session cache; use 'horizons world NAME' to keep it."));
   } else if (action === "on" || action === "off") {
     settings.enabled = action === "on"; renderMesh = []; lastMeshRevision = -1;
-    if (!settings.enabled && companion) reset(true);
     saveSettings(); notice(settings.enabled ? "Distant terrain enabled." : "Distant terrain disabled.");
+  } else if (action === "menu" || action === "book") {
+    if (!world.exists()) { notice("Join a companion-enabled world first."); return true; }
+    if (!companion) connect();
+    game.executeCommand(action === "menu" ? "/bhl:menu" : "/bhl:book");
+  } else if (action === "generation" && ["on", "off"].indexOf(args[1]) >= 0) {
+    game.executeCommand("/bhl:config " + (args[1] === "on" ? "true" : "false"));
+  } else if (action === "skirts" && ["on", "off"].indexOf(args[1]) >= 0) {
+    settings.skirts = args[1] === "on"; renderMesh = []; lastMeshRevision = -1;
+    saveSettings(); notice(settings.skirts ? "Tile edge seams hidden." : "Tile edge skirts disabled.");
   } else if (action === "realm" || action === "server") {
     if (args[1] === "on") connect();
     else if (args[1] === "off") { reset(true); notice("Using the client cache only."); }
@@ -240,7 +270,7 @@ function command(args) {
     if (settings.near >= settings.distance) settings.near = Math.floor(settings.distance / 2);
     renderMesh = []; lastMeshRevision = -1; saveSettings(); notice("Updated " + action + ".");
   } else {
-    notice("horizons status | on/off | world NAME | realm on/off | approximate on/off | distance BLOCKS | near BLOCKS | quads COUNT");
+    notice("horizons menu/book | status | on/off | world NAME | realm on/off | generation on/off | approximate on/off | skirts on/off | distance BLOCKS | near BLOCKS | quads COUNT");
   }
   return true;
 }

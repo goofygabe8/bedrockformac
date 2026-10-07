@@ -1,0 +1,10 @@
+{
+  "format_version": "1.20.10",
+  "minecraft:recipe_shapeless": {
+    "description": {"identifier": "bhl:settings_book"},
+    "tags": ["crafting_table"],
+    "ingredients": [{"item": "minecraft:paper"}],
+    "result": {"item": "bhl:settings_book", "count": 1},
+    "unlock": [{"item": "minecraft:paper"}]
+  }
+}

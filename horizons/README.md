@@ -1,4 +1,4 @@
-# Bedrock Horizons 0.1.0 — experimental development build
+# Bedrock Horizons 0.1.1 — experimental development build
 
 Original terrain-cache and world-companion code for a Distant Horizons-like Bedrock feature. This is a prototype, not a completed Distant Horizons port. No Minecraft game session has been used to validate it.
 
@@ -19,9 +19,15 @@ Original terrain-cache and world-companion code for a Distant Horizons-like Bedr
 
 The bridge is pinned to Latite commit `9f7463515dd298a496da918285936d78c7416aad` and the local Minecraft **1.26.52.3** executable hash in `latite-bridge/bridge-lock.json`. The existing released Latite v2.9.1 DLL is too old for this target. The main launcher's normal update channel is independent of this experimental project.
 
+## Console and Realm support
+
+Activate **Bedrock-Horizons-Realm-Addon.mcaddon** on the Realm through a supported host device and enable the world's required resource-pack download option. It contains the behavior pack plus a tiny book resource pack using the built-in book texture. Console players receive the book automatically; the menu and per-player saved preferences use server-side scripting. No manual console file installation is needed. These UI paths have not yet been confirmed on physical consoles.
+
+**The Realm add-on cannot add distant terrain rendering to Xbox, PlayStation, Switch, or standard mobile clients.** Required packs distribute supported pack content; they cannot load this Windows DLL or change the console renderer. Native rendering is only for the pinned computer client. Generating server chunks does not increase an unmodified client's view distance. The book explains this rather than promising a console renderer.
+
 ## World companion
 
-Import `Bedrock-Horizons-World-Companion.mcpack` through Minecraft and activate its behavior pack on your world. For a Realm, its owner activates the pack on that Realm. An administrator then runs:
+Import `Bedrock-Horizons-Realm-Addon.mcaddon` through Minecraft and activate its behavior pack on your world. For a Realm, its owner activates the pack on that Realm. An administrator then runs:
 
 ```text
 /bhl:config true
@@ -31,7 +37,15 @@ Use `/bhl:config false` to stop generation. No experiment/beta Script API toggle
 
 ## Client controls
 
-When the native build is included, `Install Experimental Horizons.command` prepares its plugin and files in this Mac's existing Bedrock runtime. Launch Minecraft normally, then run `Load Experimental Horizons.command` to load the native client for that session. The loader checks the exact game and DLL hashes, refuses multiple game processes, and does not change the stable launcher's startup behavior. To stop using the native client, close Minecraft and launch normally again. Preparation scripts have not been executed against a game.
+On **Bedrock for Mac 0.5.5 or newer**, close Minecraft and import **Bedrock-Horizons-Client-Mod.zip** using **Install Add-ons…**. The generic client-mod loader registers it and automatically loads it on future game starts, only on the compatible game build. **Client Mods…** can disable it. There are no Horizons-specific launcher controls. The included install script also registers the package with this loader; manual loading scripts are legacy developer tools.
+
+Also import **Bedrock-Horizons-Realm-Addon.mcaddon** (companion and book resources together) and activate it on your world. Run `.horizons realm on` to connect to the world companion. This connects settings even when generation is off. Native loading and visible rendering have not been confirmed in a game session.
+
+### Settings book
+
+Each player receives one free book on their first join if an inventory slot is available. Any player can get a replacement with `/bhl:book`, craft it from **one paper**, or find it in Creative. Hold the **Horizons Settings Book** and use it to open the settings menu. `/bhl:menu` and `.horizons menu` open the same menu; `.horizons book` requests the book. These commands do not require cheats. The companion must be active in the world.
+
+The menu has per-player distance, near cutoff, geometry budget, approximation, edge skirts, draw toggle, presets, and connection information. Dot commands and the book synchronize the same settings when the native client is connected. Only operators can change world generation. The book works for everyone in a companion-enabled world; drawing distant terrain still requires the compatible native client on each player's device. The actual book UI and native renderer need in-game confirmation.
 
 The client plugin requires the matching native bridge; a normal resource pack cannot provide these renderer hooks. Place its folder under `%LOCALAPPDATA%/Latite/Plugins/BedrockHorizons` when using the patched client. The default Latite local command prefix is `.`; check your prefix if it was changed.
 
@@ -46,6 +60,9 @@ The client plugin requires the matching native bridge; a normal resource pack ca
 | `.horizons world NAME` | Choose a persistent cache identity for client-only play. Use a different name per world; set it again after connecting. |
 | `.horizons distance 512` | Farthest requested/drawn distance in blocks; 128–1024. Visibility still depends on the game's projection. |
 | `.horizons near 256` | Keep simplified terrain out of the normal nearby view. Match this to the normal game render distance. |
+| `.horizons menu` / `.horizons book` | Open the companion menu or obtain its book. |
+| `.horizons skirts on` / `off` | Toggle terrain edge skirts. |
+| `.horizons generation on` / `off` | Ask the companion to change generation; operator only. |
 | `.horizons quads 768` | Maximum distant quads per frame; 128–2048. Lower values reduce script/render overhead. |
 
 Companion worlds use their own persistent opaque world ID. No account IDs or authentication tokens are stored by this plugin. Client-only mode starts with a new session ID so server address changes or proxy worlds do not mix terrain; an explicit world name enables persistence.
@@ -63,7 +80,7 @@ cmake --build build/core
 
 The native renderer bridge needs Windows MSVC and the upstream build prerequisites; it cannot be compiled unchanged with the Mac's native compiler. `latite-bridge/apply_bridge.py` validates the pinned upstream file hashes before applying the fork. The [native build completed successfully](https://github.com/goofygabe8/bedrockformac/actions/runs/37683878487) and archived its corresponding patched source. The portable Mac core and Windows loader compiled too. No Minecraft session, preparation script, native loading, or gameplay test has been run.
 
-See `latite-bridge/README.md` for the missing full-chunk/subchunk contract. The remaining work is a verified terrain-packet readiness adapter, confirmed far-plane/depth/fog integration, and launcher installation support after those work in game.
+See `latite-bridge/README.md` for the missing full-chunk/subchunk contract. The remaining work is a verified terrain-packet readiness adapter, confirmed far-plane/depth/fog integration, and confirmed gameplay across supported devices.
 
 ## License and references
 

@@ -6,6 +6,9 @@ import os
 import shutil
 import subprocess
 import sys
+import importlib.util
+import tempfile
+import zipfile
 
 PACKAGE = Path(__file__).resolve().parent.parent
 ROOT = Path(os.environ.get("BEDROCK_HORIZONS_RUNTIME", str(Path.home() / "Library/Application Support/Bedrock for Mac"))).resolve()
@@ -30,31 +33,31 @@ def main():
     if metadata.get("game_sha256") != EXPECTED_GAME or digest(native / "Latite.dll") != metadata.get("dll_sha256"):
         raise SystemExit("The native build metadata or checksum does not match.")
     if not WINE.is_file() or not PREFIX.is_dir(): raise SystemExit("Install Bedrock for Mac before preparing this experimental mod.")
+    if sys.argv[1] == "install" and (ROOT / "client_mods.py").is_file() and (PACKAGE / "bedrock-client-mod.json").is_file():
+        sys.path.insert(0, str(ROOT))
+        import client_mods
+        with tempfile.TemporaryDirectory(prefix=".mod-import-", dir=ROOT) as temp:
+            archive = Path(temp) / "client-mod.zip"
+            manifest = json.loads((PACKAGE / "bedrock-client-mod.json").read_text())
+            with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as output:
+                for name in ["bedrock-client-mod.json"] + list(manifest["files"]):
+                    output.write(PACKAGE / name, name)
+            print(client_mods.install_archive(archive))
+        print("The generic launcher loads this installed client mod on the next Minecraft start.")
+        return
     env = os.environ.copy(); env.update(WINEPREFIX=str(PREFIX), WINEDEBUG="-all")
-    # Ask this prefix for its own app-data path rather than guessing a Wine user name.
+    # Manual loading is optional. It does not add a Horizons-specific launcher feature.
     result = subprocess.run([str(WINE), "cmd.exe", "/d", "/c", "echo %LOCALAPPDATA%"], env=env,
                             capture_output=True, text=True, timeout=15, check=True)
     windows_path = result.stdout.strip()
     if not windows_path.lower().startswith("c:\\users\\") or ".." in windows_path.split("\\"):
         raise SystemExit("Could not resolve this launcher's local app-data folder.")
     app_data = PREFIX / "drive_c" / Path(windows_path[3:].replace("\\", "/"))
-    if not app_data.resolve().is_relative_to((PREFIX / "drive_c/users").resolve()):
-        raise SystemExit("The resolved app-data path is outside this launcher.")
     destination = app_data / "Latite/Plugins/BedrockHorizons"
+    registered = ROOT / "client-mods/bedrock-horizons/native/Latite.dll"
+    bridge_dir = registered.parent if registered.is_file() else ROOT / "experimental-horizons"
     if sys.argv[1] == "install":
-        destination.mkdir(parents=True, exist_ok=True)
-        for name in ("main.js", "cache.js", "mesh.js", "tile.js", "plugin.json"):
-            shutil.copy2(PACKAGE / "client" / name, destination / name)
-        engine = native / "ChakraCore.dll"
-        if engine.is_file():
-            if digest(engine) != metadata.get("chakra_sha256"): raise SystemExit("The script engine checksum does not match.")
-            assets = app_data / "Latite/Assets"; assets.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(engine, assets / engine.name)
-        bridge_dir = ROOT / "experimental-horizons"; bridge_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(native / "Latite.dll", bridge_dir / "Latite.dll")
-        shutil.copy2(PACKAGE / "tools/load-bridge.exe", bridge_dir / "load-bridge.exe")
-        print("Experimental client prepared. Launch Minecraft normally, then use Load Experimental Horizons.command.")
-        return
+        raise SystemExit("Update Bedrock for Mac to 0.5.5 or later, then use Install Add-ons to import this client-mod ZIP.")
     listing = subprocess.run(["/bin/ps", "-axo", "comm="], capture_output=True, text=True, timeout=5, check=True).stdout
     running = []
     for line in listing.splitlines():
@@ -63,13 +66,12 @@ def main():
     if len(running) != 1: raise SystemExit("Launch one Minecraft game from Bedrock for Mac first.")
     if digest(running[0]) != EXPECTED_GAME:
         raise SystemExit("This experimental bridge supports only the pinned Minecraft 1.26.52.3 executable.")
-    bridge_dir = ROOT / "experimental-horizons"
     if not (destination / "main.js").is_file() or not (bridge_dir / "Latite.dll").is_file():
         raise SystemExit("Use Install Experimental Horizons.command first.")
     if digest(bridge_dir / "Latite.dll") != metadata["dll_sha256"]:
         raise SystemExit("The installed bridge differs from this package; reinstall it first.")
     dll_path = "Z:" + str(bridge_dir / "Latite.dll").replace("/", "\\")
-    subprocess.run([str(WINE), str(bridge_dir / "load-bridge.exe"), dll_path], env=env, check=True, timeout=25)
+    subprocess.run([str(WINE), str(PACKAGE / "tools/load-bridge.exe"), dll_path], env=env, check=True, timeout=25)
     print("Use .horizons status in Minecraft. For the companion, use .horizons realm on. Rendering is experimental.")
 
 if __name__ == "__main__":

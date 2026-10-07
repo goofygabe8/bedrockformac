@@ -1,0 +1,29 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "Bedrock Horizons \u2014 Book Resources",
+    "description": "Settings book resources for the Realm companion. Distant rendering requires a separate native client.",
+    "uuid": "e7365f57-2735-4940-9fcb-a3a306467d78",
+    "version": [
+      0,
+      1,
+      1
+    ],
+    "min_engine_version": [
+      1,
+      26,
+      50
+    ]
+  },
+  "modules": [
+    {
+      "type": "resources",
+      "uuid": "809c998b-0aae-47cd-92b7-01c9b9f95637",
+      "version": [
+        0,
+        1,
+        1
+      ]
+    }
+  ]
+}

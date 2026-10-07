@@ -1,3 +1,7 @@
+## Realm distribution and console players
+
+Import the combined `Bedrock-Horizons-Realm-Addon.mcaddon`, activate both its behavior and resource packs on the Realm, and require the Realm resource packs. The resource pack references Minecraft's existing written-book texture; it does not redistribute game assets. Players receive a free book on their first join when there is room, with `/bhl:book` or one paper as replacements. The menu works through server-side forms on standard Bedrock devices. Console UI remains unverified on hardware. Console clients cannot load the native distant renderer; the book explains that limitation. Required packs cannot extend their render distance.
+
 # Bedrock Horizons world companion — experimental 0.1.0
 
 This behavior pack contains the server/world side of Bedrock Horizons. It can load a small area ahead of a player, sample its actual surface, cache the result, and send simplified tiles to an opted-in client. It uses stable `@minecraft/server` 2.6.0 APIs and targets Minecraft Bedrock 26.50 or later. The matching 26.50 release shipped stable API 2.10.0, which retains the older stable API versions.
@@ -18,6 +22,9 @@ The companion does not need the Beta APIs experiment or cheats. Its registered c
 
 | Command | Permission | Purpose |
 | --- | --- | --- |
+| `/bhl:book` | Any player | Obtain a free settings book, also craftable from one paper. |
+| `/bhl:menu` | Any player | Open your settings, presets and connection UI. |
+| `/bhl:settings <enabled> <distance> <near> <quads> <approximate> <skirts>` | Any player | Validate and save your own settings; send them to your connected native client. |
 | `/bhl:hello <clientVersion> <nonce>` | Any player | Explicitly subscribe; version is `0.1.0` style and nonce is exactly 32 lowercase hexadecimal characters. |
 | `/bhl:request <originX> <originZ> [step]` | Any subscribed player | Request one aligned surface tile in the player's current vanilla dimension. Default step: `2`; supported request steps: `1`, `2`, `4`. |
 | `/bhl:ack <sequence>` | Any subscribed player | Acknowledge a fully received, validated tile. |
@@ -41,6 +48,8 @@ Outgoing messages are targeted to the requesting player through stable `Player.s
 
 ```text
 BHL1 HELLO 1 <worldUUID32hex> <nonce32hex> <generationEnabled0or1>
+BHL1 REQUEST_SETTINGS 1 <worldUUID32hex> <nonce32hex>
+BHL1 SETTINGS 1 <worldUUID32hex> <nonce32hex> <enabled0or1> <distance> <near> <quads> <approximate0or1> <skirts0or1>
 BHL1 TILE 1 <worldUUID32hex> <nonce32hex> <sequenceDecimal> <partZeroBased> <partCount> <base64Fragment>
 ```
 

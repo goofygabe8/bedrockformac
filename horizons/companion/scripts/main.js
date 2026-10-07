@@ -5,6 +5,7 @@ import {
   WORLD_LIMIT, VERTEX_COUNT, encodeTile, base64Encode, validCachedTile,
   newWorldId, validWorldId, validTileCoordinates
 } from "./tile_codec.js";
+import {initializeSettingsUI, openMenu, giveBook, savedSettings, hasSavedSettings, storeSettings, validateSettings} from "./settings_ui.js";
 
 // Bounds are deliberately independent of client input and persist no account IDs.
 const LIMITS = Object.freeze({
@@ -345,6 +346,36 @@ function handleHello(player, clientVersion, nonce) {
   };
   subscribers.set(player.id, client);
   player.sendMessage(`BHL1 HELLO 1 ${worldId} ${nonce} ${generationEnabled ? 1 : 0}`);
+  if (hasSavedSettings(player)) sendSettings(player, savedSettings(player));
+  else if (clientVersion === "0.1.1") player.sendMessage(`BHL1 REQUEST_SETTINGS 1 ${worldId} ${nonce}`);
+}
+
+function sendSettings(player, settings) {
+  const client = subscribers.get(player.id);
+  if (!client || !subscribed(player.id, client.nonce)) return false;
+  const s = validateSettings(settings);
+  player.sendMessage(`BHL1 SETTINGS 1 ${worldId} ${client.nonce} ${s.enabled ? 1 : 0} ${s.distance} ${s.near} ${s.quads} ${s.approximate ? 1 : 0} ${s.skirts ? 1 : 0}`);
+  return true;
+}
+
+function setGeneration(player, enabled) {
+  if (player.commandPermissionLevel < CommandPermissionLevel.Admin) throw new Error("Operator permission is required.");
+  initialize();
+  world.setDynamicProperty(PROPERTY.generation, enabled);
+  generationEnabled = enabled;
+  if (!enabled) {
+    if (active) active.cancelled = true;
+    for (const job of queue) for (const [id, nonce] of job.waiters) {
+      const client = subscribed(id, nonce);
+      if (client?.pendingKey === job.key) client.pendingKey = undefined;
+    }
+    queue.length = 0;
+    if (activeLease) { activeLease.expired = true; removeOwnedArea(activeLease.identifier); }
+  }
+  for (const client of subscribers.values()) {
+    if (client.player.isValid) client.player.sendMessage(`BHL1 HELLO 1 ${worldId} ${client.nonce} ${enabled ? 1 : 0}`);
+  }
+  privateNotice(player, `Ahead-of-visit sampling ${enabled ? "enabled" : "disabled"}.`);
 }
 
 function handleRequest(player, x, z, step) {
@@ -398,6 +429,31 @@ system.beforeEvents.startup.subscribe(event => {
     registry.registerCommand({name, description, permissionLevel, cheatsRequired: false,
       mandatoryParameters, optionalParameters}, callback);
   };
+  register("bhl:book", "Get your free Horizons Settings Book.", [], [], origin => {
+    const player = sourcePlayer(origin);
+    if (!player) return failure("Run this command as a player.");
+    safelyDeferred(player, () => giveBook(player)); return success();
+  });
+  register("bhl:menu", "Open your Horizons settings without the book.", [], [], origin => {
+    const player = sourcePlayer(origin);
+    if (!player) return failure("Run this command as a player.");
+    safelyDeferred(player, () => { void openMenu(player); }); return success();
+  });
+  register("bhl:settings", "Sync your client settings with this world's settings book.", [
+    {name: "enabled", type: CustomCommandParamType.Boolean},
+    {name: "distance", type: CustomCommandParamType.Integer},
+    {name: "near", type: CustomCommandParamType.Integer},
+    {name: "quads", type: CustomCommandParamType.Integer},
+    {name: "approximate", type: CustomCommandParamType.Boolean},
+    {name: "skirts", type: CustomCommandParamType.Boolean}
+  ], [], (origin, enabled, distance, near, quads, approximate, skirts) => {
+    const player = sourcePlayer(origin);
+    if (!player) return failure("Run this command as a player.");
+    let settings;
+    try { settings = validateSettings({enabled, distance, near, quads, approximate, skirts}); }
+    catch (_) { return failure("Use valid Horizons setting ranges."); }
+    safelyDeferred(player, () => storeSettings(player, settings, false)); return success();
+  });
   register("bhl:hello", "Opt in to the experimental Bedrock Horizons terrain bridge.", [
     {name: "clientVersion", type: CustomCommandParamType.String},
     {name: "nonce", type: CustomCommandParamType.String}
@@ -447,29 +503,8 @@ system.beforeEvents.startup.subscribe(event => {
   ], [], (origin, enabled) => {
     if (typeof enabled !== "boolean") return failure("Use /bhl:config true or /bhl:config false.");
     const administrator = sourcePlayer(origin);
-    system.run(() => {
-      if (stopping) return;
-      try {
-        initialize();
-        world.setDynamicProperty(PROPERTY.generation, enabled);
-        generationEnabled = enabled;
-        if (!enabled) {
-          if (active) active.cancelled = true;
-          for (const job of queue) for (const [id, nonce] of job.waiters) {
-            const client = subscribed(id, nonce);
-            if (client?.pendingKey === job.key) client.pendingKey = undefined;
-          }
-          queue.length = 0;
-          if (activeLease) { activeLease.expired = true; removeOwnedArea(activeLease.identifier); }
-        }
-        for (const client of subscribers.values()) {
-          if (client.player.isValid) {
-            try { client.player.sendMessage(`BHL1 HELLO 1 ${worldId} ${client.nonce} ${enabled ? 1 : 0}`); } catch (_) {}
-          }
-        }
-        if (administrator) privateNotice(administrator, `Ahead-of-visit sampling ${enabled ? "enabled" : "disabled"}.`);
-      } catch (error) { console.warn(`[Bedrock Horizons] Configuration failed: ${String(error?.message ?? error).slice(0, 160)}`); }
-    });
+    if (!administrator) return failure("Run this command as a player.");
+    safelyDeferred(administrator, () => setGeneration(administrator, enabled));
     return success();
   }, CommandPermissionLevel.Admin);
 });
@@ -486,3 +521,12 @@ system.beforeEvents.shutdown.subscribe(() => {
   if (activeLease) { activeLease.expired = true; removeOwnedArea(activeLease.identifier); }
 });
 system.runInterval(pump, 1);
+
+initializeSettingsUI({
+  notice: privateNotice, sendSettings, setGeneration,
+  state: player => {
+    initialize();
+    const client = subscribers.get(player.id);
+    return {generation: generationEnabled, connected: !!(client && subscribed(player.id, client.nonce))};
+  }
+});
