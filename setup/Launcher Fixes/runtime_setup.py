@@ -115,10 +115,15 @@ def _ensure_gameinput_files(prefix):
     if missing:
         raise RuntimeError("Bundled GameInput files are missing; cannot prepare controller input.")
     target_dir.mkdir(parents=True, exist_ok=True)
+    system_dir = prefix / "drive_c/windows/system32"
+    system_dir.mkdir(parents=True, exist_ok=True)
     for name in GAMEINPUT_FILES:
         source, target = source_dir / name, target_dir / name
         if not target.is_file() or not filecmp.cmp(source, target, shallow=False):
             shutil.copy2(source, target)
+        system_target = system_dir / name
+        if not system_target.is_file() or not filecmp.cmp(source, system_target, shallow=False):
+            shutil.copy2(source, system_target)
 
 
 def _gameinput_registry_is_set(prefix):

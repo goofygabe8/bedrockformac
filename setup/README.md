@@ -1,31 +1,38 @@
 # Bedrock for Mac
 
-An unofficial Apple silicon Mac setup for the [Minecraft Bedrock GDK Launcher](https://github.com/amha0270/Minecraft-Bedrock-GDK-Launcher).
+A Minecraft-themed Mac app for the unofficial [Minecraft Bedrock GDK Launcher](https://github.com/amha0270/Minecraft-Bedrock-GDK-Launcher).
 
-## Install on another Mac
+## Install
 
-1. Unzip **Minecraft-Bedrock-Mac-Fixed-Setup.zip**.
-2. Open **Install Fixed Launcher.command**. It downloads and checks the original runtime directly from the upstream release.
-3. Open **Start Minecraft Bedrock.command** inside **Minecraft Bedrock GDK Mac (Fixed)**.
-4. Sign in with your own Microsoft account and download Minecraft. The newest available release is selected by default, and a successful download becomes the selected version.
-5. Connect your controller to macOS before selecting **Play**.
+1. Download **Bedrock-for-Mac.dmg** from the [latest release](https://github.com/goofygabe8/bedrockformac/releases/latest).
+2. Open the disk image and drag **Minecraft Bedrock** into **Applications**.
+3. Open the app from Applications. Its first launch downloads and checks the upstream Mac runtime and prepares the launcher.
+4. Sign in with your Microsoft account, choose a release to download, and press **Play Minecraft**.
 
-Python 3 and an Apple silicon Mac are required. If macOS blocks an unsigned command, Control-click it and choose Open. Minecraft game files, accounts, saves, and licenses are not included.
+An Apple silicon Mac, Rosetta 2, and Python 3 are required. If Python is missing, install it with the Mac installer from python.org. The app is not Apple-notarized. If macOS blocks it, first try opening it, then use System Settings → Privacy & Security → Open Anyway. See [Apple’s instructions](https://support.apple.com/en-us/102445). Game files, licenses, accounts, and saves are not included in the shared app.
 
-## Input and multiplayer
+Your game versions, sign-in, and worlds live in `~/Library/Application Support/Bedrock for Mac`. The app can be kept in Applications and launched from the Dock.
 
-The launcher prepares Wine's mouse and keyboard devices and native GameInput runtime automatically. It detects SDL-recognized gamepads at each game launch and routes their buttons and sticks through Wine's mapped controller path. Common PlayStation and Xbox Wireless IDs are also prepared in advance. The Bluetooth PS4 mapping was used on the working original Mac. Xbox and other pads still need hardware confirmation; support depends on macOS and the bundled SDL runtime recognizing the controller. Pair or plug in the controller before launching the game.
+## Launcher window
 
-The original Xbox runtime and account flow used by the working Realms setup are retained. **Settings → Audio Output** opens the output device selector.
+The native window has Minecraft-style pixel lettering, block buttons, and a grass-block app icon. It includes Play, installed version selection, downloading any available release (newest by default), Microsoft sign-in, connected controller status, Audio Output, and update controls. Downloaded versions become the selected game version. Microsoft device sign-in links open in your browser, with the code shown in the launcher.
 
-## Automatic launcher updates
+Connect your gamepad before Play, then use Refresh Controllers to check detection. Mouse and keyboard devices and native GameInput files are prepared automatically. SDL-recognized gamepads use the compatibility mapping, including Xbox and PlayStation devices. Bluetooth PS4 input was used on the original Mac; other hardware still needs confirmation. Audio Output opens Wine's audio configuration; choose the output in its Audio tab and restart Minecraft to apply it.
 
-Each Start checks the latest public release at [goofygabe8/bedrockformac](https://github.com/goofygabe8/bedrockformac). New launcher fixes install before the menu opens. Offline or unavailable updates allow the installed launcher to start. Downloaded assets and their files are checked against SHA-256 checksums, and previous code is kept in `.launcher-update-backup` for rollback.
+## Updates and existing installations
 
-This updates launcher code and controller setup. Minecraft game releases are downloaded through the launcher's Download menu; its default is always the newest listed release. Personal game data and login files are outside the update payload.
+The app checks this repository's latest public release every time it starts. Downloads and files are verified against SHA-256 checksums. Offline checks allow the installed launcher to open. Game data is outside the update payload, and previous launcher code is kept for rollback.
 
-## Publish your next fix
+If you already used the command-based setup, start it to receive the update. Your following start opens the graphical window. A **Minecraft Bedrock.app** appears in your existing launcher folder; drag that app into Applications to keep using that installation's game data. The old command remains a launch shortcut.
 
-After changing your local launcher, open **Build Launcher Update.command**, enter a new release version (such as `0.2.1`), and upload the generated **bedrock-mac-update.zip** to a public GitHub Release tagged `v0.2.1` in `goofygabe8/bedrockformac`. Keep the asset name exactly `bedrock-mac-update.zip`. Recipients receive it on their next Start.
+The smaller **bedrock-mac-update.zip** asset is for the automatic updater. The **Minecraft-Bedrock-Mac-Fixed-Setup.zip** asset is the command-based installation alternative. For sharing a new installation, send **Bedrock-for-Mac.dmg**.
 
-The builder creates patches against the original launcher source saved locally during installation. It includes your launcher changes and helper files without copying accounts, worlds, Wine prefixes, game files, or the upstream runtime into the shared release. New installations use the setup ZIP attached to the release.
+## Publishing another fix
+
+After changing your local launcher, open **Build Launcher Update.command**, enter a new version (for example `0.3.1`), and upload the generated **bedrock-mac-update.zip** to a public GitHub Release tagged `v0.3.1`. Keep the asset name exactly `bedrock-mac-update.zip`. Changed Swift window code is compiled when building. Recipients receive your update on their next app launch.
+
+The update builder packages code and GUI assets with patches against the original launcher source saved locally. It excludes accounts, worlds, Wine prefixes, game files, and upstream runtime files.
+
+## Credits
+
+The pixel typeface is [Monocraft](https://github.com/IdreesInc/Monocraft), by Idrees Hassan and contributors, distributed under the SIL Open Font License included with the app. The setup and update code and the grass-block icon in this repository are distributed under the MIT license. Upstream software retains its own licensing.

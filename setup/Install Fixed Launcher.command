@@ -59,7 +59,7 @@ print "Adding the mouse, keyboard, GameInput, and controller setup..."
 cp "$BASE/cli.py" "$BASE/.launcher-base-cli.py"
 python3 "$SCRIPT_DIR/Launcher Fixes/patch_launcher.py" "$BASE/cli.py"
 cp "$SCRIPT_DIR/Launcher Fixes/runtime_setup.py" "$BASE/runtime_setup.py"
-for extra in update_client.py build_update.py controller_devices controller_devices.c update-channel.json .launcher-version "Build Launcher Update.command"; do
+for extra in patch_launcher.py update_client.py build_update.py controller_devices controller_devices.c update-channel.json .launcher-version "Build Launcher Update.command"; do
     cp "$SCRIPT_DIR/Launcher Fixes/$extra" "$BASE/$extra"
 done
 chmod 755 "$BASE/controller_devices" "$BASE/Build Launcher Update.command"
@@ -68,8 +68,9 @@ cp "$SCRIPT_DIR/Launcher Fixes/requirements.txt" "$BASE/requirements.txt"
 cp "$SCRIPT_DIR/Launcher Fixes/README.md" "$BASE/README-Fixed-Setup.md"
 chmod 755 "$BASE/Start Minecraft Bedrock.command"
 mv "$BASE" "$INSTALL_DIR"
+python3 "$INSTALL_DIR/update_client.py" --ensure-gui
 
 print ""
 print "Installed: $INSTALL_DIR"
-print "Open 'Start Minecraft Bedrock.command' there, sign in with the recipient's own Microsoft account, and download Minecraft; the newest release is selected by default."
+print "Open 'Minecraft Bedrock.app' there, sign in with the recipient's own Microsoft account, and download Minecraft; the newest release is selected by default."
 print "The first Play prepares the new Wine input devices and controller runtime."

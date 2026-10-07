@@ -1,12 +1,15 @@
 """Package only launcher code for upload as a public GitHub Release asset."""
+import base64
+import io
 import difflib
 import hashlib
 import json
 import re
 import sys
+import subprocess
 import zipfile
 from pathlib import Path
-from update_client import ALLOWED, REQUIRED
+from update_client import ALLOWED, REQUIRED, GUI_FILES
 
 ROOT = Path(__file__).resolve().parent
 
@@ -18,6 +21,21 @@ def main():
     if missing:
         raise SystemExit('Missing launcher files: ' + ', '.join(missing))
     files = {name: (ROOT / name).read_bytes() for name in sorted(ALLOWED) if name not in {'.launcher-version', 'launcher-edits.json'} and (ROOT / name).is_file()}
+    source = ROOT/'launcher_gui.swift'
+    binary = ROOT/'launcher_gui'
+    if source.is_file() and (not binary.is_file() or source.stat().st_mtime > binary.stat().st_mtime):
+        print('Compiling the native launcher window…')
+        subprocess.run(['/usr/bin/swiftc', '-swift-version', '5', '-O', '-target', 'arm64-apple-macos11.0', str(source), '-o', str(binary)], check=True)
+    gui = io.BytesIO()
+    with zipfile.ZipFile(gui, 'w', zipfile.ZIP_DEFLATED) as archive:
+        for name in sorted(GUI_FILES):
+            source = ROOT/name
+            if not source.is_file(): raise SystemExit('Missing GUI asset: ' + name)
+            archive.writestr(name, source.read_bytes())
+    updater = files['update_client.py'].decode()
+    encoded = base64.b64encode(gui.getvalue()).decode()
+    updater = re.sub(r'^GUI_PAYLOAD_B64 = ".*"$', 'GUI_PAYLOAD_B64 = "' + encoded + '"', updater, flags=re.MULTILINE)
+    files['update_client.py'] = updater.encode()
     base = (ROOT / '.launcher-base-cli.py').read_text()
     current = (ROOT / 'cli.py').read_text()
     edits = [[a, b, current[c:d]] for opcode, a, b, c, d in difflib.SequenceMatcher(None, base, current, autojunk=False).get_opcodes() if opcode != 'equal']
