@@ -1,5 +1,6 @@
 /build/
 /core/horizons-tool
 /native-artifacts/
+/native-resources/
 __pycache__/
 *.pyc

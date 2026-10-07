@@ -7,6 +7,8 @@ function build(tiles, player, settings) {
   });
   for (var t = 0; t < tiles.length && result.length < settings.quads; t++) {
     var tile = tiles[t], middleX = tile.x + 8 * tile.step, middleZ = tile.z + 8 * tile.step;
+    // Current client producers use steps 2/4; do not expand generic huge core tiles into a raster.
+    if (tile.step > 4 || tile.step < 1) continue;
     var distance = Math.hypot(middleX - player.x, middleZ - player.z);
     var stride = distance > 768 ? 8 : distance > 384 ? 4 : distance > 192 ? 2 : 1;
     for (var z = 0; z < 16; z += stride) for (var x = 0; x < 16; x += stride) {

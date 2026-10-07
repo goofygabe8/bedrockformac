@@ -21,7 +21,7 @@ export function newWorldId() {
 }
 
 export function validWorldId(id) {
-  return typeof id === "string" && /^[0-9a-f]{32}$/.test(id);
+  return typeof id === "string" && /^[0-9a-f]{32}$/.test(id) && id !== "00000000000000000000000000000000";
 }
 
 function putU64(view, offset, value) {

@@ -1,6 +1,6 @@
 # Bedrock Horizons: Latite bridge research and source patch
 
-This directory targets Latite source commit `9f7463515dd298a496da918285936d78c7416aad`, whose declared game range is `1.26.5x`. The official released v2.9.1 DLL predates this source and lists 26.44 support. Do not install that old DLL on 1.26.52.3 as if it were this bridge. No client DLL has been built, installed, or executed here.
+This directory targets Latite source commit `9f7463515dd298a496da918285936d78c7416aad`, whose declared game range is `1.26.5x`. The official released v2.9.1 DLL predates this source and lists 26.44 support. Do not install that old DLL on 1.26.52.3 as if it were this bridge. The native DLL compiled successfully in the Windows GitHub build at https://github.com/goofygabe8/bedrockformac/actions/runs/37683878487. It has not been installed into or executed with a Minecraft session.
 
 ## Confirmed source integration
 
@@ -52,4 +52,4 @@ Latite is GPL-3.0. Any distributed modified Latite DLL must include the correspo
 
 Approximate observations must be kept separate from confirmed `.bht` terrain. A default strict client must reject them. Opt-in approximate rendering is a separate developer option and can produce missing or clipped surfaces while chunks arrive.
 
-`apply_bridge.py` requires the three source files to match the pinned SHA256 values in the lock before changing either. `patched-source/` contains the generated replacement source; `bedrock-horizons-observations.patch` is the corresponding minimal diff. No unrelated upstream source is modified. The fork also corrects relative filesystem path resolution so plugin caches stay inside the plugin directory. These source files have not been compiled with MSVC or exercised in Minecraft.
+`apply_bridge.py` requires the three source files to match the pinned SHA256 values in the lock before changing either. `patched-source/` contains the generated replacement source; `bedrock-horizons-observations.patch` is the corresponding minimal diff. No unrelated upstream source is modified. The fork also corrects relative filesystem path resolution so plugin caches stay inside the plugin directory. These source files compiled successfully with MSVC in that build. They have not been exercised in Minecraft.

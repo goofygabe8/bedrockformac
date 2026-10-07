@@ -84,5 +84,10 @@
       }
     }
   },
-  "filesystem": "Relative plugin paths always resolve to the plugin directory, preventing CWD cache collisions; absolute paths retain upstream behavior."
+  "filesystem": "Relative plugin paths always resolve to the plugin directory, preventing CWD cache collisions; absolute paths retain upstream behavior.",
+  "native_compile": {
+    "status": "success",
+    "url": "https://github.com/goofygabe8/bedrockformac/actions/runs/37683878487",
+    "gameplay_validation": false
+  }
 }

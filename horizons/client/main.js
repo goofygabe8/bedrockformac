@@ -2,7 +2,7 @@
 var codec = require("tile.js"), Cache = require("cache.js"), mesh = require("mesh.js");
 var fs = require("filesystem"), cache = new Cache();
 var settings = {enabled: true, approximate: false, distance: 512, near: 256, quads: 768, skirts: true};
-var aliases = {}, worldId = null, persistentWorld = false, dimensionId = -1;
+var aliases = Object.create(null), worldId = null, persistentWorld = false, dimensionId = -1;
 var companion = false, generation = false, nonce = "", helloAt = 0, helloDeadline = 0;
 var request = null, assemblies = new Map(), retry = new Map(), samples = null;
 var ticks = 0, renderMesh = [], lastMeshRevision = -1, status = "Waiting for a world";
@@ -40,7 +40,7 @@ function currentDimension() {
   var name = String(dimension.getName()).toLowerCase();
   if (["overworld", "minecraft:overworld"].indexOf(name) >= 0) return 0;
   if (["nether", "minecraft:nether"].indexOf(name) >= 0) return 1;
-  if (["the end", "the_end", "end", "minecraft:the_end"].indexOf(name) >= 0) return 2;
+  if (["the end", "theend", "the_end", "end", "minecraft:the_end"].indexOf(name) >= 0) return 2;
   return -1;
 }
 function position() {
@@ -70,7 +70,7 @@ function protocol(event) {
   var text = event.message;
   var hello = /^BHL1 HELLO 1 ([0-9a-f]{32}) ([0-9a-f]{32}) ([01])$/.exec(text);
   if (hello) {
-    if (hello[2] !== nonce) return;
+    if (hello[2] !== nonce || !codec.worldValid(hello[1])) return;
     event.cancel = true;
     if (worldId !== hello[1]) { request = null; assemblies.clear(); samples = null; renderMesh = []; }
     worldId = hello[1]; persistentWorld = true; cache.persistent = true;
@@ -115,7 +115,8 @@ function selectRequest(p) {
     var distance = Math.hypot(x + span / 2 - p.x, z + span / 2 - p.z);
     if (distance < settings.near - span || distance > settings.distance || !codec.coordinates(x, z, step)) continue;
     var key = worldId + "-" + dimensionId + "-4-" + x + "-" + z + "-2";
-    if (cache.get(key) || (retry.get(key) || 0) > now) continue;
+    var cached = cache.get(key);
+    if ((cached && now - (cached.receivedAt || 0) < 600000) || (retry.get(key) || 0) > now) continue;
     if (!best || distance < best.distance) best = {x: x, z: z, step: step, key: key, distance: distance, created: now};
   }
   if (best) {
@@ -250,5 +251,9 @@ client.on("render3d", function() {
 client.on("leave-game", function() { cache.flush(32); reset(false); });
 client.on("transfer", function() { cache.flush(32); reset(false); });
 client.on("change-dimension", function() { request = null; assemblies.clear(); samples = null; renderMesh = []; dimensionId = -1; });
-client.on("unload-script", function() { if (companion && world.exists()) game.executeCommand("/bhl:disable"); cache.flush(32); renderMesh = []; });
+client.on("unload-script", function(event) {
+  if (event.scriptName !== plugin.name) return;
+  if (companion && world.exists()) game.executeCommand("/bhl:disable");
+  cache.flush(32); renderMesh = [];
+});
 notice("Prototype loaded. Use '" + client.getCommandManager().getPrefix() + "horizons' for controls. Native rendering compatibility is not yet confirmed.");

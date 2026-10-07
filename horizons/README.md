@@ -31,6 +31,8 @@ Use `/bhl:config false` to stop generation. No experiment/beta Script API toggle
 
 ## Client controls
 
+When the native build is included, `Install Experimental Horizons.command` prepares its plugin and files in this Mac's existing Bedrock runtime. Launch Minecraft normally, then run `Load Experimental Horizons.command` to load the native client for that session. The loader checks the exact game and DLL hashes, refuses multiple game processes, and does not change the stable launcher's startup behavior. To stop using the native client, close Minecraft and launch normally again. Preparation scripts have not been executed against a game.
+
 The client plugin requires the matching native bridge; a normal resource pack cannot provide these renderer hooks. Place its folder under `%LOCALAPPDATA%/Latite/Plugins/BedrockHorizons` when using the patched client. The default Latite local command prefix is `.`; check your prefix if it was changed.
 
 | Command | Purpose |
@@ -59,13 +61,13 @@ cmake -S core -B build/core
 cmake --build build/core
 ```
 
-The native renderer bridge needs Windows MSVC and the upstream build prerequisites; it cannot be compiled unchanged with the Mac's native compiler. `latite-bridge/apply_bridge.py` validates the pinned upstream file hashes before applying the fork. The GitHub workflow builds the native DLL and archives its corresponding patched source; it does not run Minecraft or gameplay tests.
+The native renderer bridge needs Windows MSVC and the upstream build prerequisites; it cannot be compiled unchanged with the Mac's native compiler. `latite-bridge/apply_bridge.py` validates the pinned upstream file hashes before applying the fork. The [native build completed successfully](https://github.com/goofygabe8/bedrockformac/actions/runs/37683878487) and archived its corresponding patched source. The portable Mac core and Windows loader compiled too. No Minecraft session, preparation script, native loading, or gameplay test has been run.
 
 See `latite-bridge/README.md` for the missing full-chunk/subchunk contract. The remaining work is a verified terrain-packet readiness adapter, confirmed far-plane/depth/fog integration, and launcher installation support after those work in game.
 
 ## License and references
 
-Original `core/`, `client/`, `companion/` and packaging code: MIT (`LICENSE`). Modified Latite source and additions to it: GPL-3.0 (`latite-bridge/UPSTREAM-LICENSE`). A distributed native DLL must include the pinned corresponding source and these fork changes. No Minecraft executable, account data, world data or game assets are distributed.
+Original `core/`, `client/`, `companion/` and packaging code: MIT (`LICENSE`). Modified Latite source and additions to it: GPL-3.0 (`latite-bridge/UPSTREAM-LICENSE`). A distributed native DLL includes its pinned corresponding source and these fork changes. The bundled ChakraCore script engine is MIT-licensed, pinned to the upstream asset commit and blob checksum in `native/chakra-lock.json`; its notice is included. No Minecraft executable, account data, world data or game assets are distributed.
 
 - [Mojang's subchunk request contract](https://github.com/Mojang/bedrock-protocol-docs/blob/main/additional_docs/SubChunk%20Request%20System%20v1.18.10.md)
 - [Stable temporary ticking areas](https://learn.microsoft.com/en-us/minecraft/creator/scriptapi/minecraft/server/tickingareamanager?view=minecraft-bedrock-stable)

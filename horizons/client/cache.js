@@ -43,7 +43,10 @@ Cache.prototype.get = function(key) {
   }
   if (live) {
     this.resident.delete(key); this.resident.set(key, live);
-    if (entry) entry.used = Date.now();
+    if (entry) {
+      entry.used = Date.now();
+      if (!this.dirty.has(key)) live.receivedAt = entry.updated || 0;
+    }
     this.evictResident();
   }
   return live || null;
@@ -61,6 +64,7 @@ Cache.prototype.put = function(tile) {
   var key = codec.key(tile), old = this.resident.get(key);
   if (!keyPattern.test(key) || (old && old.revision > tile.revision)) return false;
   this.resident.delete(key); this.resident.set(key, tile);
+  tile.receivedAt = Date.now();
   if (this.persistent) {
     if (this.dirty.size >= 32 && !this.dirty.has(key)) this.flush(2);
     if (this.dirty.size < 32 || this.dirty.has(key)) this.dirty.set(key, tile);
@@ -76,7 +80,7 @@ Cache.prototype.flush = function(limit) {
       var text = tile.approximate ? JSON.stringify(tile) : codec.base64(codec.encode(tile));
       fs.write("cache/" + key + suffix, codec.asciiBytes(text));
       this.index = this.index.filter(function(e) { return e.key !== key; });
-      this.index.push({key: key, used: Date.now(), bytes: text.length}); this.indexDirty = true;
+      this.index.push({key: key, used: Date.now(), updated: tile.receivedAt || Date.now(), bytes: text.length}); this.indexDirty = true;
       this.dirty.delete(key); written++;
     } catch (_) { this.errors++; this.dirty.delete(key); written++; }
   }
