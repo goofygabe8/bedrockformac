@@ -68,6 +68,14 @@ function protocol(event) {
   if (!companion || typeof event.message !== "string" || event.message.length > 1000 ||
       [0, 6, 10].indexOf(event.type) < 0 || (event.sender && event.sender.length)) return;
   var text = event.message;
+  if (event.type === 10 && text[0] === "{") {
+    try {
+      var objectText = JSON.parse(text);
+      if (!objectText || !Array.isArray(objectText.rawtext) || objectText.rawtext.length !== 1 ||
+          !objectText.rawtext[0] || typeof objectText.rawtext[0].text !== "string") return;
+      text = objectText.rawtext[0].text;
+    } catch (_) { return; }
+  }
   var hello = /^BHL1 HELLO 1 ([0-9a-f]{32}) ([0-9a-f]{32}) ([01])$/.exec(text);
   if (hello) {
     if (hello[2] !== nonce || !codec.worldValid(hello[1])) return;
