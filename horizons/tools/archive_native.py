@@ -39,5 +39,6 @@ metadata = {
     "dll_sha256": hashlib.sha256(dll.read_bytes()).hexdigest(),
     "license": "GPL-3.0",
     "known_client_columns": False,
+    "local_terrain_sampling": False,
 }
 (output / "native-build.json").write_text(json.dumps(metadata, indent=2) + "\n")

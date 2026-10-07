@@ -1,6 +1,14 @@
-# Bedrock Horizons 0.1.3 — experimental development build
+# Bedrock Horizons 0.1.4 — experimental development build
 
 Original terrain-cache and world-companion code for a Distant Horizons-like Bedrock feature. This is a prototype, not a completed Distant Horizons port. Successful distant-terrain rendering has not been confirmed in Minecraft.
+
+## Local terrain crash recovery
+
+The 0.1.3 native bridge loaded its JavaScript successfully, then crashed when the local terrain sampler called `BlockSource::getChunkAt`. The crash dump identifies `GameScriptingObject::dimensionGetSurface`, source line 235. This was a native access violation, not a missing world pack or an input permission problem.
+
+Version 0.1.4 removes local terrain scans from the client JavaScript and replaces the native surface method with an unavailable result that performs no game-memory reads. Even strict mode no longer probes the unsafe reader. The approximation toggle cannot restore it. Exploring alone does not capture new distant terrain in this recovery release. The separate world-companion delivery route remains implemented but needs in-game confirmation.
+
+The native mod is disabled after this crash. Close Minecraft before trying another build; replacing files does not repair a DLL already loaded in a running game. Do not treat compilation as proof of working rendering.
 
 ## Native input and startup recovery
 
@@ -8,18 +16,18 @@ Native 0.1.1 produced three startup crashes under Wine. Native 0.1.2 kept option
 
 Native 0.1.3 uses a narrow terrain scripting bridge: it does not intercept the window procedure, mouse, keyboard, controller, camera input or cursor capture. It does not hook DirectX presentation or initialize the desktop overlay, built-in modules or overlay menus. Minecraft retains its own input and UI. Graphics3D terrain drawing remains in the game renderer, skips empty batches and restores shader color. An unused WebSocket member no longer activates an unavailable WinRT service during script registration. Optional online trust failures still retain untrusted permissions. The companion receiver also accepts the pinned SDK’s named text-packet types, preserving its checks against player chat and session mismatches.
 
-This rebuild needs in-game confirmation. The installed native mod stays disabled after the regression; re-enable it in **Client Mods…** only for a fresh game launch when ready to try the corrected build. Close Minecraft first: an already loaded DLL cannot be repaired by updating its files. Client package 0.1.3 retains the 0.1.1 companion handshake and settings protocol. Debug symbols and full corresponding native source are included.
+This rebuild needs in-game confirmation. The installed native mod stays disabled after the regression; re-enable it in **Client Mods…** only for a fresh game launch when ready to try the corrected build. Close Minecraft first: an already loaded DLL cannot be repaired by updating its files. Client package 0.1.4 retains the 0.1.1 companion handshake and settings protocol. Debug symbols and full corresponding native source are included.
 
 ## What is implemented
 
 - A portable C++17 terrain core: versioned tiles, CRC validation, world/dimension isolation, bounded cache, conservative LOD aggregation, mesh generation and OBJ export.
 - A client JavaScript plugin: bounded disk cache, distance-based surface meshes, edge skirts, controls, opted-in companion negotiation, fragment validation and acknowledgements.
-- A narrow native Latite fork patch: nearby read-only surface observations for ordinary players. It preserves the normal server permission checks and the existing restrictions on unrelated client APIs.
+- A narrow native Latite fork patch: in-game terrain drawing and chat/world hooks, with the unsafe local terrain reader disabled. It preserves normal server permission checks and restrictions on unrelated APIs.
 - A Realm/BDS/local-world behavior pack: administrator-enabled ahead-of-visit sampling with temporary chunk areas, finite work queues, cleanup, persistent tiles and targeted in-game delivery. No external Realm HTTP service is needed.
 
 ## Current limits
 
-**Client-only terrain is approximate and requires an explicit option.** The pinned native SDK cannot prove whether every vertical subchunk was received. It therefore returns observations with `known:false`. These observations use separate JSON cache files and are never exported as verified `.bht` terrain. Strict mode is the default; without the companion it waits for a future chunk-readiness hook.
+**Client-only terrain capture is disabled.** The native chunk accessor crashed on the pinned game build. Both the JS probes and native block scan are removed. A confirmed calling convention, class layout and full-column readiness adapter are required before restoration. Connect the world companion for its independent terrain route; visible rendering still needs confirmation.
 
 **The in-game renderer remains unverified.** It submits real geometry through the existing game renderer, but the game projection far plane, fog, material depth behavior and Wine/D3DMetal compatibility need a deliberate gameplay check. A compiled DLL alone does not establish that distant terrain is visible or correctly occluded. This first version renders simplified colored surface geometry, without caves, overhangs or block textures. It does not replace the game's terrain, collision, or normal render distance.
 
@@ -51,7 +59,7 @@ Use `/bhl:config false` to stop generation. No experiment/beta Script API toggle
 
 On **Bedrock for Mac 0.5.5 or newer**, close Minecraft and import **Bedrock-Horizons-Client-Mod.zip** using **Install Add-ons…**. The generic client-mod loader registers it and loads it on future game starts when enabled, only on the compatible game build. **Client Mods…** can disable it. There are no Horizons-specific launcher controls. The included install script also registers the package with this loader; manual loading scripts are legacy developer tools.
 
-Also import **Bedrock-Horizons-Realm-Addon.mcaddon** (companion and book resources together) and activate it on your world. Run `.horizons realm on` to connect to the world companion. This connects settings even when generation is off. Native loading and visible rendering have not been confirmed in a game session.
+Also import **Bedrock-Horizons-Realm-Addon.mcaddon** (companion and book resources together) and activate it on your world. Run `.horizons realm on` to connect to the world companion. This connects settings even when generation is off. The 0.1.3 log confirmed startup script loading; visible terrain rendering has not been confirmed.
 
 ### Settings book
 
@@ -66,8 +74,8 @@ The client plugin requires the matching native bridge; a normal resource pack ca
 | `.horizons status` | Show connection, cache mode and mesh count. |
 | `.horizons on` / `.horizons off` | Enable or stop distant drawing. |
 | `.horizons realm on` | Opt in to the active world companion. Works for local worlds and BDS too. |
-| `.horizons realm off` | Disconnect the companion and return to session-only client caching. |
-| `.horizons approximate on` | Allow unverified nearby surface observations in client-only mode. Missing/clipped terrain is possible while chunks load. |
+| `.horizons realm off` | Disconnect the companion. New local terrain capture remains disabled. |
+| `.horizons approximate on` | Reports that local terrain capture is unavailable; it cannot enable the unsafe reader. |
 | `.horizons approximate off` | Draw only verified terrain. Default. |
 | `.horizons world NAME` | Choose a persistent cache identity for client-only play. Use a different name per world; set it again after connecting. |
 | `.horizons distance 512` | Farthest requested/drawn distance in blocks; 128–1024. Visibility still depends on the game's projection. |
@@ -90,7 +98,7 @@ cmake -S core -B build/core
 cmake --build build/core
 ```
 
-The native renderer bridge needs Windows MSVC and the upstream build prerequisites; it cannot be compiled unchanged with the Mac's native compiler. `latite-bridge/apply_bridge.py` validates the pinned upstream file hashes before applying the fork. The [native build completed successfully](https://github.com/goofygabe8/bedrockformac/actions/runs/37683878487) and archived its corresponding patched source. The portable Mac core and Windows loader compiled too. No Minecraft session, preparation script, native loading, or gameplay test has been run.
+The native renderer bridge needs Windows MSVC and the upstream build prerequisites; it cannot be compiled unchanged with the Mac's native compiler. `latite-bridge/apply_bridge.py` validates the pinned upstream file hashes before applying the fork. Build evidence is recorded in `latite-bridge/bridge-lock.json`; corresponding native source is archived with each DLL. The portable Mac core and Windows loader compiled too. User game sessions exposed the documented startup, input and chunk-reader regressions. Successful rendering remains unconfirmed.
 
 See `latite-bridge/README.md` for the missing full-chunk/subchunk contract. The remaining work is a verified terrain-packet readiness adapter, confirmed far-plane/depth/fog integration, and confirmed gameplay across supported devices.
 

@@ -88,7 +88,7 @@ def main():
     # Every target and replacement is checked before the first source write.
     for relative, data in replacements.items():
         (source / relative).write_bytes(data)
-    print("Applied the observation-only bridge. known remains false; no readiness offsets were invented.")
+    print("Applied the minimal terrain bridge. Local terrain scanning is disabled; no game offsets were invented.")
 
 if __name__ == "__main__":
     main()

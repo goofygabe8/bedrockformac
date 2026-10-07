@@ -16,7 +16,7 @@ This directory targets Latite source commit `9f7463515dd298a496da918285936d78c74
 
 `BlockSource.h` has `getChunkAt(BlockPos)->void*`, `hasBlock`, and `hasChunksAt`, but no `LevelChunk` structure, received-subchunk readiness, or heightmap accessor. `areChunksFullyLoaded` is declared with an unknown `void` return. A non-null pointer or returned air is not proof that a full vertical column arrived. The bridge must not turn incomplete client columns into confirmed terrain. Dimension min/max heights are not exposed either.
 
-The initial native observation API can safely report a bounded block scan as **provisional**. A completed-chunk/subchunk-readiness adapter is required before it may return `known: true`. Server-provided tiles can separately be confirmed by the companion's loaded-area contract.
+The 0.1.3 crash report identifies an access violation inside the game called from the bridge’s `BlockSource::getChunkAt` scan. Even an observation-only read is unsafe until the native ABI is established. Version 0.1.4 disables local scans entirely. Server-provided tiles use the separate companion loaded-area contract.
 
 ## Windows build route
 
@@ -46,10 +46,10 @@ Follow upstream's Visual Studio 2026 build prerequisites. A successful build wou
 
 Latite is GPL-3.0. Any distributed modified Latite DLL must include the corresponding fork source, upstream copyright/license, and patch notices. This bridge does not redistribute Minecraft code or binaries.
 
-## Native observation API
+## Disabled native observation API
 
-`dimension.getSurface(x,z)` accepts exact integer coordinates within 128 blocks of the local player and samples at most four columns per 50 ms. It returns `{known:false,readiness:"unverified",reason:"chunk-completeness-unverified",observed:{height,block,water,color,colorEstimated:true,minY,maxY}}`, or `observed:null` with a reason. `height` is the top face (block y+1); colors are approximate RGB8 values inferred from the block name. Existing `dimension.getBlock` keeps its upstream Operator gate. No chunks are requested, generated, changed, or persistently loaded by this API.
+`dimension.getSurface(x,z)` remains as a compatibility entry point, but returns `{available:false,known:false,readiness:"disabled",reason:"native-client-sampling-disabled",observed:null}`. It performs no game-memory reads and calls no BlockSource methods. The client JavaScript also stops issuing probes, including the former default strict-mode probe.
 
-Approximate observations must be kept separate from confirmed `.bht` terrain. A default strict client must reject them. Opt-in approximate rendering is a separate developer option and can produce missing or clipped surfaces while chunks arrive.
+The reader requires a confirmed native ABI and full-column readiness adapter before restoration. The approximate toggle cannot reactivate it. World-companion tile delivery is independent of this reader, but the renderer still requires gameplay confirmation.
 
-`apply_bridge.py` requires the three source files to match the pinned SHA256 values in the lock before changing either. `patched-source/` contains the generated replacement source; `bedrock-horizons-observations.patch` is the corresponding minimal diff. No unrelated upstream source is modified. The fork also corrects relative filesystem path resolution so plugin caches stay inside the plugin directory. These source files compiled successfully with MSVC in that build. They have not been exercised in Minecraft.
+`apply_bridge.py` validates every upstream file hash in `bridge-lock.json` before writing any source. `minimal_client.py` removes unrelated input and desktop-overlay integration. Relative cache paths resolve inside the plugin directory. The distributed DLL includes complete corresponding native source; obsolete generated observation patches were retired instead of being presented as current.

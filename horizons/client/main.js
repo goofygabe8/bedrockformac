@@ -7,7 +7,6 @@ var companion = false, generation = false, nonce = "", helloAt = 0, helloDeadlin
 var request = null, assemblies = new Map(), retry = new Map(), samples = null;
 var ticks = 0, renderMesh = [], lastMeshRevision = -1, status = "Waiting for a world";
 var visibleContext = null;
-var strictProbeAfter = 0;
 function randomId() {
   var id = ""; for (var i = 0; i < 32; i++) id += Math.floor(Math.random() * 16).toString(16); return id;
 }
@@ -161,47 +160,11 @@ function selectRequest(p) {
     helloAt = now; game.executeCommand("/bhl:hello 0.1.1 " + nonce);
   }
 }
-function beginSampling(p) {
-  var step = 2, span = 16 * step, bx = Math.floor(p.x / span), bz = Math.floor(p.z / span);
-  var choices = [];
-  // Read only the nearby client copy. Never load/request terrain through this path.
-  for (var dz = -2; dz <= 2; dz++) for (var dx = -2; dx <= 2; dx++) {
-    var x = (bx + dx) * span, z = (bz + dz) * span;
-    if (!codec.coordinates(x, z, step)) continue;
-    var candidate = {world: worldId, dimension: dimensionId, x: x, z: z, step: step, source: 1,
-      revision: Date.now(), samples: new Array(289).fill(null), approximate: settings.approximate};
-    var old = cache.get(codec.key(candidate));
-    if (!old || Date.now() - old.revision > 30000) choices.push(candidate);
-  }
-  choices.sort(function(a, b) {
-    return Math.hypot(a.x + 16 - p.x, a.z + 16 - p.z) - Math.hypot(b.x + 16 - p.x, b.z + 16 - p.z);
-  });
-  if (choices.length) samples = {tile: choices[0], index: 0, found: 0};
-}
-function sampleClient(p) {
-  if (typeof dimension.getSurface !== "function") { status = "Native terrain bridge is not installed"; return; }
-  if (!settings.approximate && Date.now() < strictProbeAfter) return;
-  if (!samples) beginSampling(p);
-  if (!samples) return;
-  var job = samples, tile = job.tile;
-  for (var n = 0; n < 2 && job.index < 289; n++, job.index++) {
-    var sx = tile.x + (job.index % 17) * tile.step, sz = tile.z + Math.floor(job.index / 17) * tile.step;
-    if (Math.abs(sx - p.x) > 128 || Math.abs(sz - p.z) > 128) continue;
-    var read = dimension.getSurface(sx, sz), observed = read && read.observed;
-    if (!settings.approximate && read && read.known === false) {
-      status = "Strict mode: waiting for a verified chunk-readiness bridge";
-      samples = null; strictProbeAfter = Date.now() + 10000; return;
-    }
-    // Observation-only native bridge never supplies known:true; strict mode rejects it.
-    if (!read || (!read.known && !settings.approximate) || !codec.validSample(observed)) continue;
-    if (!read.known) tile.approximate = true;
-    tile.samples[job.index] = {height: observed.height, water: observed.water, color: observed.color.slice()}; job.found++;
-  }
-  if (job.index >= 289) {
-    if (job.found) { cache.put(tile); status = tile.approximate ? "Approximate visited terrain cached" : "Visited terrain cached"; }
-    else if (!companion) status = "Strict mode: waiting for a verified chunk-readiness bridge";
-    samples = null;
-  }
+function clientCaptureUnavailable() {
+  // The native BlockSource reader crashed on this game build. No native terrain
+  // probes, including strict-mode probes, are allowed in this recovery release.
+  samples = null;
+  status = "Client terrain capture unavailable; use the world companion";
 }
 function tick() {
   ticks++;
@@ -224,7 +187,7 @@ function tick() {
   assemblies.forEach(function(a, key) { if (now - a.created > 10000) assemblies.delete(key); });
   if (!settings.enabled || dimensionId < 0) return;
   if (ticks % 20 === 0) selectRequest(p);
-  if (!companion) sampleClient(p);
+  if (!companion) clientCaptureUnavailable();
   if (ticks % 40 === 0) cache.flush(2);
   var context = Math.floor(p.x / 16) + ":" + Math.floor(p.z / 16) + ":" + worldId + ":" + dimensionId;
   if (ticks % 20 === 0 && (context !== visibleContext || cache.revision !== lastMeshRevision)) {
@@ -251,11 +214,11 @@ function command(args) {
     saveSettings(); notice(settings.skirts ? "Tile edge seams hidden." : "Tile edge skirts disabled.");
   } else if (action === "realm" || action === "server") {
     if (args[1] === "on") connect();
-    else if (args[1] === "off") { reset(true); notice("Using the client cache only."); }
+    else if (args[1] === "off") { reset(true); notice("Companion disconnected. Local terrain capture is unavailable in this build."); }
     else notice("Use 'horizons realm on' after the owner activates the companion pack.");
   } else if (action === "approximate" && ["on", "off"].indexOf(args[1]) >= 0) {
-    settings.approximate = args[1] === "on"; samples = null; renderMesh = []; lastMeshRevision = -1;
-    saveSettings(); notice(settings.approximate ? "Approximate observations enabled; partially loaded terrain may be clipped." : "Only verified terrain will be drawn.");
+    settings.approximate = false; samples = null; renderMesh = []; lastMeshRevision = -1;
+    saveSettings(); notice(args[1] === "on" ? "Local terrain capture is disabled after a native crash. Use the world companion." : "Only verified terrain will be drawn.");
   } else if (action === "world") {
     var alias = String(args[1] || "").toLowerCase();
     if (!/^[a-z0-9_-]{1,40}$/.test(alias)) { notice("Choose a short world name using letters, numbers, '-' or '_'."); return true; }

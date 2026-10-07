@@ -14,7 +14,7 @@
     "sha256": "4a92bfa3ce2428b40ee517b7c1125d9f6f79274382de03846351992663b2e2e4"
   },
   "source_review": {
-    "terrain_api": "dimension.getBlock exists but requires Operator",
+    "terrain_api": "Native local BlockSource sampling disabled after an access violation; readiness and ABI must be confirmed before restoration.",
     "command_api": "game.executeCommand has no client Operator gate; server permission checks apply",
     "renderer_api": "graphics3D.drawQuad and finish call in-engine Tessellator/MeshHelpers",
     "world_identity": "world.getName plus game.getServer/getPort; no stable Realm ID API",
@@ -50,7 +50,7 @@
       "matches": 1
     }
   },
-  "runtime_validation": "Native 0.1.1 crashed at startup; native 0.1.2 logged missing WinRT activation and D3D11On12 failure, and the user reported lost mouse input. Disabling native restored normal gameplay. Native 0.1.3 removes input/desktop overlay hooks and unused eager socket activation; gameplay remains unconfirmed.",
+  "runtime_validation": "Native 0.1.3 loaded its startup JS successfully, then crashed in MinecraftWindows+0x2D80E4F called by GameScriptingObject::dimensionGetSurface at source line 235 (BlockSource::getChunkAt). Native mod disabled. 0.1.4 removes local scans in JS and makes the native method return unavailable without accessing game memory. Companion rendering remains unconfirmed.",
   "released_dll": {
     "tag": "v2.9.1",
     "published_at": "2026-08-15T21:51:47Z",
@@ -80,30 +80,20 @@
   },
   "api": {
     "method": "dimension.getSurface(x,z)",
+    "available": false,
     "known": false,
-    "observation_only": true,
-    "max_radius_blocks": 128,
-    "max_scans_per_50_ms": 4,
-    "max_block_reads_per_scan": 384,
+    "game_memory_access": false,
     "result": {
+      "available": false,
       "known": false,
-      "reason": "chunk-completeness-unverified",
-      "readiness": "unverified",
-      "observed": {
-        "height": "top-face y+1",
-        "block": "namespaced id",
-        "water": "boolean",
-        "color": "RGB8 estimated block-name palette",
-        "colorEstimated": true,
-        "minY": "canonical dimension minimum",
-        "maxY": "canonical dimension maximum"
-      }
+      "readiness": "disabled",
+      "reason": "native-client-sampling-disabled",
+      "observed": null
     }
   },
   "filesystem": "Relative plugin paths always resolve to the plugin directory, preventing CWD cache collisions; absolute paths retain upstream behavior.",
   "native_compile": {
-    "status": "success",
-    "url": "https://github.com/goofygabe8/bedrockformac/actions/runs/37703733775",
+    "status": "pending",
     "gameplay_validation": false
   },
   "startup_compatibility": "Optional online plugin trust failures retain untrusted permissions instead of terminating Minecraft. Per-plugin WinRT/C++ startup errors are logged and skip that plugin.",
