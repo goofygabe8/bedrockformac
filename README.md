@@ -84,3 +84,15 @@ Start Minecraft, then activate packs in a world's **Resource Packs / Behavior Pa
 Higher pack versions replace older copies with the same identifier; equal or older versions are skipped. Replaced packs are kept in `.addon-backups` beside the Wine bottle. Files are staged before installation, archives have path/size limits, and failed replacements are rolled back. Worlds and their pack activation settings are not edited. This feature is compiled and packaged, but has not been checked with an in-game import yet.
 
 Pack storage follows [Microsoft's GDK folder layout](https://learn.microsoft.com/en-us/minecraft/creator/documents/gdkpcprojectfolder?view=minecraft-bedrock-stable) and [pack manifest types and versions](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/addonsreference/packmanifest?view=minecraft-bedrock-stable).
+
+## Mac text shortcuts and Paste Text
+
+Version 0.5.4 enables **Mac copy / paste shortcuts** by default in Settings → Controls. After restarting Minecraft, Command is mapped to Windows Control for the game: use **Command+V** or **Control+V** in an open text field. Command+C and Command+A use the game’s normal copy/select support. Option maps to Windows Alt; Command-Tab remains a macOS shortcut. Turn the setting off if you prefer the previous modifier mapping. This uses [Wine's Mac-driver options](https://github.com/wine-mirror/wine/blob/master/dlls/winemac.drv/macdrv_main.c).
+
+For text fields that still reject ordinary clipboard paste, choose **Paste Text…** while Minecraft is open. The launcher reads the Mac clipboard only when you click this button and shows an editable preview. Click **Paste in 3 Seconds**, then click Minecraft's open chat, sign, or search field. The helper checks the game executable and foreground process and sends Unicode text input. Line breaks and tabs become spaces; it never presses Enter. Review the inserted text before submitting it. Text is passed through a pipe, not stored in files, process arguments, or game logs. Game field limits still apply; the launcher caps input at 16,384 UTF-16 units. This fallback has compiled but still needs confirmation in a Minecraft text field.
+
+## Loading the experimental Horizons client
+
+**Horizons Status** reports whether the native library and script engine are loaded in the running Minecraft process. The world companion's `/bhl:config true` permits sampling; it does not draw terrain by itself. The native client must connect and request tiles.
+
+After installing the separate experimental client bundle, save and leave your world, keeping Minecraft at its main menu, then choose **Load Horizons… → Load at Main Menu**. This explicitly loads the native library for this game session. The launcher checks the supported game, bridge, and script-engine hashes before loading. Join the companion-enabled world and use `.horizons status`, `/bhl:config true`, and `.horizons realm on`. The client is experimental and can crash; loading its library does not confirm script startup or terrain rendering. Load it again after every Minecraft restart. Native assets remain separate from the stable launcher release.

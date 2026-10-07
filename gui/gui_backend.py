@@ -261,6 +261,72 @@ def download(value):
     emit('result', ok=True, message='Minecraft ' + value + ' is ready to play.')
 
 
+def paste_text():
+    """Read text through a pipe; never include clipboard contents in logs/arguments."""
+    active = games()
+    if len(active) != 1:
+        raise RuntimeError('Open one Minecraft game before pasting text.')
+    text = sys.stdin.buffer.read(65537)
+    if not text or len(text) > 65536:
+        raise RuntimeError('Choose nonempty text of up to 16,384 characters.')
+    text.decode('utf-8', errors='strict')
+    for seconds in (3, 2, 1):
+        emit('progress', message='Click your Minecraft text field. Pasting in ' + str(seconds) + '…')
+        time.sleep(1)
+    if games() != active:
+        raise RuntimeError('Minecraft changed during the countdown. Paste canceled.')
+    env = os.environ.copy(); env.update(WINEPREFIX=str(PREFIX), WINEDEBUG='-all')
+    env.pop('WINEGDK_PREAUTH_DEVICE', None)
+    game_path = 'Z:' + str(VERSIONS/active[0]['version']/'Minecraft.Windows.exe').replace('/', '\\')
+    result = subprocess.run([str(WINE), str(ROOT/'paste_text.exe'), game_path],
+                            input=text, capture_output=True, env=env, timeout=75)
+    if result.returncode:
+        # The helper's own errors contain no clipboard text. Do not show arbitrary Wine stderr.
+        errors = result.stderr.decode('utf-8', errors='replace').splitlines()
+        safe = [line for line in errors if line.startswith(('Paste ', 'Minecraft did not accept', 'Choose one'))]
+        raise RuntimeError(safe[-1] if safe else 'Paste did not finish. Keep Minecraft focused with its text field open, then retry.')
+    emit('result', ok=True, message='Text sent to Minecraft. Review it before pressing Enter. Long text may be limited by the game field.')
+
+
+def file_digest(path):
+    digest = hashlib.sha256()
+    with path.open('rb') as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def horizons(load=False):
+    active = games()
+    if len(active) != 1:
+        raise RuntimeError('Launch one Minecraft game first. To load Horizons, save and leave your world, keeping Minecraft at its main menu.')
+    env = os.environ.copy(); env.update(WINEPREFIX=str(PREFIX), WINEDEBUG='-all')
+    env.pop('WINEGDK_PREAUTH_DEVICE', None)
+    helper = ROOT/'horizons_loader.exe'
+    status = execute([WINE, helper, '--status'], env=env, timeout=20)
+    if not load:
+        emit('result', ok=True, message=status.replace('\n', '. ') + '. The /bhl pack alone does not draw terrain. Load the native client each game session, then use .horizons realm on in your world.')
+        return
+    if 'Native client: loaded' in status:
+        emit('result', ok=True, message='The native client is already loaded. Use .horizons status in your world. If it gives no reply, the script did not initialize; restart Minecraft before loading again.')
+        return
+    game = VERSIONS/active[0]['version']/'Minecraft.Windows.exe'
+    if file_digest(game) != '4a92bfa3ce2428b40ee517b7c1125d9f6f79274382de03846351992663b2e2e4':
+        raise RuntimeError('This experimental Horizons bridge supports only the pinned Minecraft 1.26.52.3 game. Select that installed version first.')
+    bridge = ROOT/'experimental-horizons/Latite.dll'
+    if not bridge.is_file() or file_digest(bridge) != '13944cb8300f5ff59302e5476e7ea68b3f24d7306af4a6b15103bec02b627b58':
+        raise RuntimeError('Install the matching Experimental Horizons client package first. Importing the world companion .mcpack only installs its behavior pack.')
+    locations = [path for path in (PREFIX/'drive_c/users').glob('*/AppData/Local/Latite') if (path/'Plugins/BedrockHorizons/main.js').is_file()]
+    if len(locations) != 1:
+        raise RuntimeError('The Horizons client script is missing or ambiguous. Run Install Experimental Horizons.command from the client package first.')
+    engine = locations[0]/'Assets/ChakraCore.dll'
+    if not engine.is_file() or file_digest(engine) != 'ff1130fb68da737b2de1670729e328a5c4fbcac1eddd2be78bfdb03da6c5e8ff':
+        raise RuntimeError('The Horizons script engine is missing or differs from the package. Reinstall the experimental client package first.')
+    emit('progress', message='Loading the experimental Horizons client…')
+    execute([WINE, helper, 'Z:' + str(bridge).replace('/', '\\')], env=env, timeout=25)
+    emit('result', ok=True, message='Native library loaded; terrain rendering is not yet confirmed. Join your world and use .horizons status, then .horizons realm on. Load Horizons again after each Minecraft restart.')
+
+
 def main():
     os.chdir(ROOT)
     action = sys.argv[1]
@@ -276,6 +342,9 @@ def main():
         emit('result', ok=True, message='Signed out.')
     elif action == 'play': play(sys.argv[2])
     elif action == 'close_game': close_game()
+    elif action == 'paste-text': paste_text()
+    elif action == 'horizons-status': horizons()
+    elif action == 'horizons-load': horizons(load=True)
     elif action == 'settings':
         from launcher_settings import settings
         emit('result', ok=True, **settings(PREFIX))

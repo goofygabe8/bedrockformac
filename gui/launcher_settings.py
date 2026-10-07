@@ -36,6 +36,8 @@ SCHEMA = [
     field('gfx_multithreaded_renderer', 'Multi-threaded renderer', 'Graphics', 'bool', True, 'Let Minecraft use multiple CPU threads for rendering work. Leave enabled unless diagnosing a game-specific problem.'),
     field('metal_hud', 'Performance overlay', 'Graphics', 'bool', False, 'Show Apple’s Metal performance overlay, including frame rate and GPU timing. Useful when comparing settings.'),
     field('ctrl_sensitivity2_mouse', 'Mouse sensitivity', 'Controls', 'slider', 0.5, 'Camera movement speed for your mouse or trackpad.', minimum=0, maximum=1, step=0.01, scale=100, unit='%'),
+    field('mac_command_shortcuts', 'Mac copy / paste shortcuts', 'Controls', 'bool', True,
+          'Map Command to Windows Control for Command+C, Command+V and Command+A. Option sends Windows Alt. Applies after restarting Minecraft; Control shortcuts also work.'),
     field('ctrl_sensitivity2_gamepad', 'Controller sensitivity', 'Controls', 'slider', 0.5, 'Camera movement speed for the controller’s right stick.', minimum=0, maximum=1, step=0.01, scale=100, unit='%'),
     field('ctrl_invertmouse_mouse', 'Invert mouse look', 'Controls', 'bool', False, 'Reverse vertical camera movement for mouse and trackpad input.'),
     field('ctrl_invertmouse_gamepad', 'Invert controller look', 'Controls', 'bool', False, 'Reverse vertical camera movement for the controller’s right stick.'),
@@ -52,7 +54,7 @@ for key, title, default in [('audio_main', 'Master volume', 0.7), ('audio_music'
     SCHEMA.append(field(key, title, 'Sound', 'slider', default, 'Volume for ' + title.lower() + '. Audio output device is selected with Audio Output in the main launcher.', minimum=0, maximum=1, step=0.05, scale=100, unit='%'))
 
 BY_KEY = {entry['key']: entry for entry in SCHEMA}
-LAUNCHER_KEYS = {'high_resolution', 'renderer', 'metal_hud'}
+LAUNCHER_KEYS = {'high_resolution', 'renderer', 'metal_hud', 'mac_command_shortcuts'}
 DEFAULTS = {entry['key']: entry['default'] for entry in SCHEMA}
 PRESETS = {
     'Balanced': {'high_resolution': True, 'renderer': 'metal3', 'graphics_mode': 1, 'gfx_msaa': 4, 'gfx_viewdistance': 256, 'deferred_viewdistance': 16, 'gfx_vsync': True, 'gfx_max_framerate': 120, 'gfx_texture_streaming': True, 'gfx_multithreaded_renderer': True},
@@ -154,6 +156,16 @@ def prepare_launch_settings(prefix, wine):
             files = [target]
             saved['pending_game'] = {key: value for key, value in DEFAULTS.items() if key not in LAUNCHER_KEYS} | saved.get('pending_game', {})
     launcher = saved.get('launcher', {})
+    from runtime_setup import _registry_value_is_set, _import_registry
+    shortcut_key = r'Software\Wine\AppDefaults\Minecraft.Windows.exe\Mac Driver'
+    shortcut_mode = 'y' if launcher.get('mac_command_shortcuts', True) else 'n'
+    shortcut_values = {'LeftCommandIsCtrl': shortcut_mode, 'RightCommandIsCtrl': shortcut_mode}
+    if shortcut_mode == 'y':
+        shortcut_values.update(LeftOptionIsAlt='y', RightOptionIsAlt='y')
+    if any(not _registry_value_is_set(prefix/'user.reg', shortcut_key, '"' + key + '"="' + value + '"') for key, value in shortcut_values.items()):
+        registry = 'Windows Registry Editor Version 5.00\n\n[HKEY_CURRENT_USER\\' + shortcut_key + ']\n'
+        registry += ''.join('"' + key + '"="' + value + '"\n' for key, value in shortcut_values.items())
+        _import_registry(prefix, wine, registry)
     retina = launcher.get('high_resolution')
     # Fresh installations use Retina. Existing installations keep their choice.
     if retina is None:

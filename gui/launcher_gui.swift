@@ -4,7 +4,7 @@ import CoreGraphics
 import Darwin
 
 // The update builder sets this before compiling each release.
-let launcherVersion = "0.5.3"
+let launcherVersion = "0.5.4"
 
 func launcherExecutable(_ root: URL) -> URL {
     if Bundle.main.bundleIdentifier == "dev.bedrockformac.launcher", let executable = Bundle.main.executableURL { return executable }
@@ -284,6 +284,7 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var showGameButton: NSButton!
     var updateButton: NSButton!
     var frameGenerationButton: NSButton!
+    var pasteButton: NSButton!
     let frameGenerationRate = BlockPopUp(frame: .zero, pullsDown: false)
     let frameGenerationStatus = NSTextField(wrappingLabelWithString: "Off. Experimental smoothing needs macOS 26+. Choose Minecraft in Apple's window picker if prompted. It may add delay and HUD artifacts.")
     var frameGenerationProcess: Process?
@@ -380,6 +381,7 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
         closeGameButton = button("Close Game", #selector(closeGameAction))
         showGameButton = button("Show Game", #selector(showGameAction))
         updateButton = button("Check for Updates", #selector(updateAction))
+        pasteButton = button("Paste Text…", #selector(pasteAction))
         frameGenerationButton = button("Start Frame Generation", #selector(frameGenerationAction))
         frameGenerationRate.addItems(withTitles: ["60 → 120 FPS", "40 → 80 FPS", "30 → 60 FPS"])
         frameGenerationRate.font = pixelFont(11)
@@ -387,11 +389,11 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
         frameGenerationStatus.preferredMaxLayoutWidth = 680
         let game = section("PLAY", [row([installedTitle, installed, play]), row([downloadTitle, releases, download]),
                                     row([highResolution, button("Settings…", #selector(settingsAction))]),
-                                    row([showGameButton, closeGameButton, button("Open Game Logs", #selector(logsAction))])])
+                                    row([showGameButton, closeGameButton, pasteButton, button("Open Game Logs", #selector(logsAction))])])
         let devices = section("CONTROLLER & AUDIO", [controller, row([button("Refresh Controllers", #selector(refreshAction)), button("Audio Output…", #selector(audioAction))])])
         let addonHelp = NSTextField(wrappingLabelWithString: "Install downloaded Bedrock packs into your Windows game. Close Minecraft before importing, then activate packs in the game's world settings. Realm packs require the Realm owner.")
         addonHelp.font = pixelFont(10); addonHelp.textColor = .secondaryLabelColor
-        let addons = section("ADD-ONS", [row([button("Install Add-ons…", #selector(addonsAction)), button("Installed Packs…", #selector(addonsListAction)), button("Packs Folder", #selector(addonsFolderAction))]), addonHelp])
+        let addons = section("ADD-ONS", [row([button("Install Add-ons…", #selector(addonsAction)), button("Installed Packs…", #selector(addonsListAction)), button("Packs Folder", #selector(addonsFolderAction))]), row([button("Load Horizons…", #selector(horizonsAction)), button("Horizons Status", #selector(horizonsStatusAction))]), addonHelp])
         let updates = section("UPDATES", [row([updateLabel, updateButton, button("Open Releases", #selector(releasesAction))])])
         let interpolation = section("FRAME GENERATION / EXPERIMENTAL", [row([frameGenerationRate, frameGenerationButton]), frameGenerationStatus])
         let stack = NSStackView(views: [title, subtitle, row([account, signIn]), game, addons, devices, interpolation, updates, row([spinner, status])])
@@ -421,6 +423,9 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
         appItem.submenu = appMenu; menu.addItem(appItem)
         let editItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: ""); let edit = NSMenu(title: "Edit")
         edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         editItem.submenu = edit; menu.addItem(editItem); NSApp.mainMenu = menu
         updateLabel.stringValue = "v" + launcherVersion
         window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
@@ -439,6 +444,7 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
         updateButton.isEnabled = !value && !gameOpen
         closeGameButton.isEnabled = !value && gamePID != nil
         showGameButton.isEnabled = !value && gamePID != nil
+        pasteButton.isEnabled = !value && runningGame && !gameLaunching
         highResolution.isEnabled = !value
         let interpolationRunning = frameGenerationProcess != nil
         frameGenerationButton.isEnabled = interpolationRunning || (!value && runningGame && ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26)
@@ -448,7 +454,7 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
         play.invalidateIntrinsicContentSize()
         if value || gameLaunching { spinner.startAnimation(nil) } else { spinner.stopAnimation(nil) }
     }
-    func run(_ action: String, _ arguments: [String] = []) {
+    func run(_ action: String, _ arguments: [String] = [], inputText: String? = nil) {
         if busy { return }
         if action == "play" && (runningGame || gameLaunching) { return }
         currentAction = action; openedSignIn = false
@@ -461,6 +467,8 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
             process.currentDirectoryURL = self.root
             let pipe = Pipe(); process.standardOutput = pipe
             let errorPipe = Pipe(); process.standardError = errorPipe
+            let inputPipe = Pipe()
+            process.standardInput = inputText == nil ? FileHandle.nullDevice : inputPipe
             var environment = ProcessInfo.processInfo.environment
             environment["PYTHONUNBUFFERED"] = "1"
             environment["BEDROCK_GUI_VERSION"] = launcherVersion
@@ -469,6 +477,10 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
             var receivedResult = false
             do {
                 try process.run()
+                if let text = inputText {
+                    inputPipe.fileHandleForWriting.write(Data(text.utf8))
+                    inputPipe.fileHandleForWriting.closeFile()
+                }
                 var pending = Data()
                 while true {
                     let chunk = pipe.fileHandleForReading.availableData
@@ -576,6 +588,38 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc func accountAction() { run(authenticated ? "logout" : "login") }
     @objc func refreshAction() { run("status") }
     @objc func audioAction() { run("audio") }
+    @objc func pasteAction() {
+        guard runningGame, !busy else { return }
+        let alert = NSAlert(); alert.messageText = "Paste Text into Minecraft"
+        alert.informativeText = "Review or edit the text below. After clicking Paste, you have 3 seconds to click Minecraft's chat, sign, or search field. Enter is never pressed; line breaks become spaces."
+        alert.addButton(withTitle: "Paste in 3 Seconds"); alert.addButton(withTitle: "Cancel")
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 540, height: 180))
+        scroll.hasVerticalScroller = true; scroll.borderType = .bezelBorder
+        let editor = NSTextView(frame: scroll.bounds)
+        editor.font = pixelFont(11); editor.isRichText = false
+        editor.isVerticallyResizable = true; editor.autoresizingMask = [.width]
+        editor.textContainer?.widthTracksTextView = true
+        editor.textContainerInset = NSSize(width: 8, height: 8)
+        editor.string = NSPasteboard.general.string(forType: .string) ?? ""
+        scroll.documentView = editor; alert.accessoryView = scroll
+        alert.beginSheetModal(for: window) { response in
+            guard response == .alertFirstButtonReturn else { return }
+            let text = editor.string
+            guard !text.isEmpty, text.utf16.count <= 16384, text.utf8.count <= 65536 else {
+                self.status.stringValue = "Paste text must contain 1–16,384 characters."; return
+            }
+            self.run("paste-text", inputText: text)
+        }
+    }
+    @objc func horizonsStatusAction() { run("horizons-status") }
+    @objc func horizonsAction() {
+        let alert = NSAlert(); alert.messageText = "Load Experimental Horizons"
+        alert.informativeText = "Save and leave your world first, keeping Minecraft open at its main menu. This loads the experimental native client for this session and could crash Minecraft. The separate Horizons client package must already be installed."
+        alert.addButton(withTitle: "Load at Main Menu"); alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { response in
+            if response == .alertFirstButtonReturn { self.run("horizons-load") }
+        }
+    }
     @objc func addonsAction() {
         if runningGame || gameLaunching {
             status.stringValue = "Close Minecraft and finish saving before installing add-ons."
