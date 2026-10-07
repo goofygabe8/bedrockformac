@@ -4,7 +4,35 @@ import CoreGraphics
 import Darwin
 
 // The update builder sets this before compiling each release.
-let launcherVersion = "0.5.1"
+let launcherVersion = "0.5.2"
+
+func launcherExecutable(_ root: URL) -> URL {
+    if Bundle.main.bundleIdentifier == "dev.bedrockformac.launcher", let executable = Bundle.main.executableURL { return executable }
+    let candidates = [URL(fileURLWithPath: "/Applications/Minecraft Bedrock.app/Contents/MacOS/BedrockLauncher"),
+                      FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/Minecraft Bedrock.app/Contents/MacOS/BedrockLauncher")]
+    return candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0.path) }) ?? root.appendingPathComponent("launcher_gui")
+}
+
+func prepareLauncherRoot() throws -> URL {
+    let manager = FileManager.default
+    let resources = Bundle.main.resourceURL
+    let bundled = Bundle.main.bundleIdentifier == "dev.bedrockformac.launcher"
+    let explicit = CommandLine.arguments.dropFirst().first.flatMap { $0.hasPrefix("-") ? nil : URL(fileURLWithPath: $0) }
+    let saved = bundled ? resources.flatMap { try? String(contentsOf: $0.appendingPathComponent("RuntimePath.txt"), encoding: .utf8) }.map { URL(fileURLWithPath: $0.trimmingCharacters(in: .whitespacesAndNewlines)) } : nil
+    let root = explicit ?? saved ?? (bundled ? manager.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Bedrock for Mac") : URL(fileURLWithPath: manager.currentDirectoryPath))
+    try manager.createDirectory(at: root, withIntermediateDirectories: true)
+    if bundled, let client = resources?.appendingPathComponent("Client") {
+        for item in try manager.contentsOfDirectory(at: client, includingPropertiesForKeys: nil) {
+            let target = root.appendingPathComponent(item.lastPathComponent)
+            if !manager.fileExists(atPath: target.path) { try manager.copyItem(at: item, to: target) }
+        }
+        for name in ["launcher_gui", "controller_devices", "frame_generation"] {
+            let path = root.appendingPathComponent(name).path
+            if manager.fileExists(atPath: path) { try manager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path) }
+        }
+    }
+    return root
+}
 
 func pixelFont(_ size: CGFloat) -> NSFont { NSFont(name: "Monocraft", size: size) ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular) }
 func rgb(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> NSColor { NSColor(calibratedRed: r/255, green: g/255, blue: b/255, alpha: 1) }
@@ -257,7 +285,7 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var updateButton: NSButton!
     var frameGenerationButton: NSButton!
     let frameGenerationRate = BlockPopUp(frame: .zero, pullsDown: false)
-    let frameGenerationStatus = NSTextField(wrappingLabelWithString: "Off. Experimental smoothing needs macOS 26+ and Screen Recording permission. It may add delay and HUD artifacts.")
+    let frameGenerationStatus = NSTextField(wrappingLabelWithString: "Off. Experimental smoothing needs macOS 26+. Choose Minecraft in Apple's window picker if prompted. It may add delay and HUD artifacts.")
     var frameGenerationProcess: Process?
     var settingsEditor: SettingsEditor?
     var buttons: [NSButton] = []
@@ -560,7 +588,7 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
         status.stringValue = "Update installed. Reopening the launcher…"
         let token = UUID().uuidString
         let ack = root.appendingPathComponent(".launcher-relaunch/" + token + ".json")
-        let process = Process(); process.executableURL = root.appendingPathComponent("launcher_gui")
+        let process = Process(); process.executableURL = launcherExecutable(root)
         process.arguments = [root.path, "--relaunch-token", token]
         process.currentDirectoryURL = root
         process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
@@ -704,7 +732,12 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if let active = frameGenerationProcess, active.isRunning { active.terminate() }
     }
 }
-let root = CommandLine.arguments.count > 1 ? URL(fileURLWithPath: CommandLine.arguments[1]) : URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+let root: URL
+do { root = try prepareLauncherRoot() }
+catch {
+    let alert = NSAlert(); alert.messageText = "Could not prepare Minecraft Bedrock's launcher files."
+    alert.informativeText = error.localizedDescription; alert.runModal(); exit(1)
+}
 let delegate = Launcher(root: root)
 NSApplication.shared.delegate = delegate
 NSApplication.shared.run()

@@ -45,11 +45,13 @@ This is a targeted compatibility fix, not a replacement authentication runtime. 
 
 Version 0.5.0 adds optional display-side interpolation using Apple's VideoToolbox low-latency frame processor. It estimates motion from two captured game images and synthesizes a midpoint frame; it does not extract Minecraft's engine motion vectors or use the MetalFX game-renderer interpolator. Engine integration would also need depth, correct motion-vector conventions, and HUD separation.
 
-The mode starts **off**. It requires macOS 26+, compatible Apple silicon hardware, and Screen & System Audio Recording permission. The original M1 Pro reports API support. Successful playback, visual quality, and performance are not yet confirmed. Captured window pixels stay in memory; no recording files or capture audio are created.
+The mode starts **off**. It requires macOS 26+, compatible Apple silicon hardware, and permission to capture the Minecraft window. It uses an existing recording grant when available; otherwise Apple's window picker asks you to select Minecraft directly. The original M1 Pro reports API support. Successful playback, visual quality, and performance are not yet confirmed. Captured window pixels stay in memory; no recording files or capture audio are created.
 
 1. Before playing, set Minecraft's FPS limit to match the selected input rate: 60 for 60 → 120, 40 for 40 → 80, or 30 for 30 → 60. Launcher settings apply on the next game start; the game's own settings can also be used.
-2. Launch Minecraft, then press **Start Frame Generation**. Accept the macOS recording permission if prompted. If macOS requires it, enable the app in System Settings → Privacy & Security → Screen & System Audio Recording, then start frame generation again.
+2. Launch Minecraft, then press **Start Frame Generation**. If Apple's window picker appears, select the Minecraft game window. This grants access to that window without repeatedly changing System Settings. Canceling leaves frame generation off.
 3. Use **Stop Frame Generation** in the launcher, or the **FG** menu-bar item, to return to normal output. The mode stops when the game or launcher closes.
+
+Version 0.5.2 runs the native launcher inside **Minecraft Bedrock.app**, including when opened through the old command shortcut. Updates replace its executable atomically and reopen the installed app. Ad hoc signing can invalidate a previous recording grant when a build changes; the system window picker provides fresh, window-specific consent without a Settings loop. The capture stream keeps Apple's authorized filter and verifies that the selected window belongs to the running game.
 
 Version 0.5.1 waits for a successfully processed frame before reporting that generation is running. If Apple rejects the initial mode, it recreates the processor with other supported pixel formats and smaller video canvases, stopping after a bounded set of attempts. Session configurations and frame parameters stay alive until processing completes. Native game frames retain their original capture resolution; generated frames are cropped and scaled back to the same aspect ratio. Numeric startup/error diagnostics are available in `.gui-logs/frame-generation.log`; it contains no captured images or audio. Presentation is paced on a separate queue, and live status reports captured, generated, and actually presented frames separately. Processing adds a two-input-frame presentation buffer plus capture/processing overhead. It can introduce HUD artifacts, ghosting, or weaker responsiveness and does not increase game simulation speed. Resize the game before enabling it; changing window shape requires restarting the mode. If the processor cannot keep pace, it stops rather than repeatedly showing late generated frames. Try a smaller window or the 30 → 60 mode.
 
@@ -65,7 +67,7 @@ The smaller **bedrock-mac-update.zip** asset is for the automatic updater. The *
 
 ## Publishing another fix
 
-After changing your local launcher, open **Build Launcher Update.command**, enter a new version (for example `0.5.1`), and upload the generated **bedrock-mac-update.zip** to a public GitHub Release tagged `v0.5.1`. Keep the asset name exactly `bedrock-mac-update.zip`. Changed Swift window code is compiled when building. Recipients receive your update on their next app launch.
+After changing your local launcher, open **Build Launcher Update.command**, enter a new version (for example `0.5.2`), and upload the generated **bedrock-mac-update.zip** to a public GitHub Release tagged `v0.5.2`. Keep the asset name exactly `bedrock-mac-update.zip`. Changed Swift window code is compiled when building. Recipients receive your update on their next app launch.
 
 The update builder packages code and GUI assets with patches against the original launcher source saved locally. It excludes accounts, worlds, Wine prefixes, game files, and upstream runtime files.
 

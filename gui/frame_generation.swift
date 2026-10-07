@@ -47,7 +47,7 @@ final class ProcessingRequest: @unchecked Sendable {
 }
 
 @available(macOS 26.0, *)
-final class FrameGeneration: NSObject, NSApplicationDelegate, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
+final class FrameGeneration: NSObject, NSApplicationDelegate, SCStreamOutput, SCStreamDelegate, SCContentSharingPickerObserver, @unchecked Sendable {
     let gamePID: pid_t
     let parentPID: pid_t
     let baseFPS: Int
@@ -92,6 +92,8 @@ final class FrameGeneration: NSObject, NSApplicationDelegate, SCStreamOutput, SC
     var statusItem: NSStatusItem?
     var monitor: Timer?
     var terminationSignal: DispatchSourceSignal?
+    var pickerActive = false
+    var selectingWindow = false
     var width = 0, height = 0
     var captureWidth = 0, captureHeight = 0
     var processingContentRect = CGRect.zero
@@ -118,18 +120,59 @@ final class FrameGeneration: NSObject, NSApplicationDelegate, SCStreamOutput, SC
         guard VTLowLatencyFrameInterpolationConfiguration.isSupported else {
             fail("Apple frame interpolation is unavailable on this Mac."); return
         }
-        // This permission request is reached only after the user presses Start.
-        guard CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess() else {
-            report("permission", "Allow Minecraft Bedrock in System Settings → Privacy & Security → Screen & System Audio Recording, then stop and restart frame generation.")
-            NSApp.terminate(nil); return
-        }
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.title = "FG"; item.button?.toolTip = "Minecraft experimental frame generation"
         let menu = NSMenu()
         let stop = NSMenuItem(title: "Stop Minecraft Frame Generation", action: #selector(stopAction), keyEquivalent: "")
         stop.target = self; menu.addItem(stop); item.menu = menu; statusItem = item
+        monitor = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { [weak self] _ in self?.followWindow() }
         report("progress", "Preparing experimental frame generation…")
-        Task { await start() }
+        // Ad-hoc updates may invalidate the previous global TCC grant. The
+        // system picker authorizes the chosen window without a Settings loop.
+        if CGPreflightScreenCaptureAccess() { Task { await start() } }
+        else { presentWindowPicker() }
+    }
+
+    func presentWindowPicker() {
+        guard !stopping, !selectingWindow else { return }
+        selectingWindow = true
+        let picker = SCContentSharingPicker.shared
+        var configuration = SCContentSharingPickerConfiguration()
+        configuration.allowedPickerModes = [.singleWindow]
+        configuration.excludedBundleIDs = ["dev.bedrockformac.launcher"]
+        configuration.allowsChangingSelectedContent = false
+        picker.defaultConfiguration = configuration
+        if !pickerActive { picker.add(self); pickerActive = true }
+        picker.isActive = true
+        report("progress", "Select the Minecraft game window in macOS's window picker to start frame generation.")
+        picker.present(using: .window)
+    }
+
+    func contentSharingPicker(_ picker: SCContentSharingPicker, didCancelFor stream: SCStream?) {
+        DispatchQueue.main.async {
+            self.selectingWindow = false
+            report("progress", "Window selection canceled. Frame generation is off.")
+            self.stopAction()
+        }
+    }
+
+    func contentSharingPicker(_ picker: SCContentSharingPicker, didUpdateWith filter: SCContentFilter, for stream: SCStream?) {
+        DispatchQueue.main.async {
+            guard !self.stopping, self.selectingWindow else { return }
+            self.selectingWindow = false
+            guard filter.includedWindows.count == 1, let window = filter.includedWindows.first,
+                  window.owningApplication?.processID == self.gamePID,
+                  window.frame.width > 200, window.frame.height > 150 else {
+                self.fail("Select Minecraft's game window when starting frame generation."); return
+            }
+            // Keep the picker-issued filter: rebuilding it would discard its
+            // authorization and incorrectly ask for global recording access.
+            Task { await self.start(filter: filter, window: window) }
+        }
+    }
+
+    func contentSharingPickerStartDidFailWithError(_ error: Error) {
+        DispatchQueue.main.async { self.selectingWindow = false; self.fail("Could not open Minecraft's window picker: " + error.localizedDescription) }
     }
 
     func start() async {
@@ -139,9 +182,22 @@ final class FrameGeneration: NSObject, NSApplicationDelegate, SCStreamOutput, SC
                 .max(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }) else {
                 throw NSError(domain: "FrameGeneration", code: 1, userInfo: [NSLocalizedDescriptionKey: "Show Minecraft's game window, then start frame generation again."])
             }
+            let filter = SCContentFilter(desktopIndependentWindow: window)
+            await start(filter: filter, window: window)
+        } catch {
+            let value = error as NSError
+            if value.domain == SCStreamErrorDomain, value.code == SCStreamError.Code.userDeclined.rawValue {
+                await MainActor.run { self.presentWindowPicker() }
+            } else if !stopping { await MainActor.run { self.fail(error.localizedDescription) } }
+        }
+    }
+
+    func start(filter: SCContentFilter, window: SCWindow) async {
+        do {
+            guard !stopping else { return }
+            candidates.removeAll(); nextCandidate = 0
             windowID = window.windowID
             originalAspect = window.frame.width / window.frame.height
-            let filter = SCContentFilter(desktopIndependentWindow: window)
             let naturalW = max(2, Int(filter.contentRect.width * Double(filter.pointPixelScale)))
             let naturalH = max(2, Int(filter.contentRect.height * Double(filter.pointPixelScale)))
             captureWidth = naturalW; captureHeight = naturalH
@@ -193,11 +249,18 @@ final class FrameGeneration: NSObject, NSApplicationDelegate, SCStreamOutput, SC
             report("progress", "Waiting for the first interpolated frame… Set Minecraft's FPS limit to \(baseFPS).")
             try await capture.startCapture()
             lastStats = CACurrentMediaTime()
-            await MainActor.run {
-                self.monitor = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { [weak self] _ in self?.followWindow() }
-                self.followWindow()
-            }
-        } catch { if !stopping { await MainActor.run { self.fail(error.localizedDescription) } } }
+            await MainActor.run { self.followWindow() }
+        } catch {
+            guard !stopping else { return }
+            let value = error as NSError
+            if value.domain == SCStreamErrorDomain, value.code == SCStreamError.Code.userDeclined.rawValue, !pickerActive {
+                stream = nil
+                await MainActor.run {
+                    self.panel?.orderOut(nil); self.panel = nil; self.layer = nil
+                    self.presentWindowPicker()
+                }
+            } else { await MainActor.run { self.fail(error.localizedDescription) } }
+        }
     }
 
     func prepareNextProcessor() async throws {
@@ -475,6 +538,7 @@ final class FrameGeneration: NSObject, NSApplicationDelegate, SCStreamOutput, SC
     @objc func stopAction() {
         guard !stopping else { return }
         stopping = true; invalidateFrames(); monitor?.invalidate(); panel?.orderOut(nil)
+        if pickerActive { SCContentSharingPicker.shared.remove(self); SCContentSharingPicker.shared.isActive = false; pickerActive = false }
         if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }
         Task {
             try? await stream?.stopCapture()
