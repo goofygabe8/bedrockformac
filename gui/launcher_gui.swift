@@ -4,7 +4,7 @@ import CoreGraphics
 import Darwin
 
 // The update builder sets this before compiling each release.
-let launcherVersion = "0.5.4"
+let launcherVersion = "0.5.5"
 
 func launcherExecutable(_ root: URL) -> URL {
     if Bundle.main.bundleIdentifier == "dev.bedrockformac.launcher", let executable = Bundle.main.executableURL { return executable }
@@ -393,7 +393,7 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let devices = section("CONTROLLER & AUDIO", [controller, row([button("Refresh Controllers", #selector(refreshAction)), button("Audio Output…", #selector(audioAction))])])
         let addonHelp = NSTextField(wrappingLabelWithString: "Install downloaded Bedrock packs into your Windows game. Close Minecraft before importing, then activate packs in the game's world settings. Realm packs require the Realm owner.")
         addonHelp.font = pixelFont(10); addonHelp.textColor = .secondaryLabelColor
-        let addons = section("ADD-ONS", [row([button("Install Add-ons…", #selector(addonsAction)), button("Installed Packs…", #selector(addonsListAction)), button("Packs Folder", #selector(addonsFolderAction))]), row([button("Load Horizons…", #selector(horizonsAction)), button("Horizons Status", #selector(horizonsStatusAction))]), addonHelp])
+        let addons = section("ADD-ONS", [row([button("Install Add-ons…", #selector(addonsAction)), button("Installed Packs…", #selector(addonsListAction)), button("Packs Folder", #selector(addonsFolderAction))]), row([button("Client Mods…", #selector(clientModsAction))]), addonHelp])
         let updates = section("UPDATES", [row([updateLabel, updateButton, button("Open Releases", #selector(releasesAction))])])
         let interpolation = section("FRAME GENERATION / EXPERIMENTAL", [row([frameGenerationRate, frameGenerationButton]), frameGenerationStatus])
         let stack = NSStackView(views: [title, subtitle, row([account, signIn]), game, addons, devices, interpolation, updates, row([spinner, status])])
@@ -559,6 +559,7 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if action == "settings-save" {
             settingsEditor?.finish(success, message: data["message"] as? String ?? "Could not save settings.")
         }
+        if action == "client-mods", success { showClientMods(data["mods"] as? [[String: Any]] ?? []) }
         if action == "addons-list", success {
             let packs = data["packs"] as? [[String: Any]] ?? []
             let lines = packs.map { pack -> String in
@@ -611,13 +612,26 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
             self.run("paste-text", inputText: text)
         }
     }
-    @objc func horizonsStatusAction() { run("horizons-status") }
-    @objc func horizonsAction() {
-        let alert = NSAlert(); alert.messageText = "Load Experimental Horizons"
-        alert.informativeText = "Save and leave your world first, keeping Minecraft open at its main menu. This loads the experimental native client for this session and could crash Minecraft. The separate Horizons client package must already be installed."
-        alert.addButton(withTitle: "Load at Main Menu"); alert.addButton(withTitle: "Cancel")
+    @objc func clientModsAction() { run("client-mods") }
+    func showClientMods(_ mods: [[String: Any]]) {
+        let alert = NSAlert(); alert.messageText = "Installed Client Mods"
+        alert.informativeText = "Enabled mods load automatically with compatible Minecraft versions on the next game start. Native mods run code inside the game. Install a client-mod ZIP with Install Add-ons."
+        alert.addButton(withTitle: "Save"); alert.addButton(withTitle: "Cancel")
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 540, height: 220)); scroll.hasVerticalScroller = true
+        let entries = mods.map { mod -> (String, NSButton) in
+            let box = NSButton(checkboxWithTitle: (mod["name"] as? String ?? "Mod") + " • v" + (mod["version"] as? String ?? ""), target: nil, action: nil)
+            box.font = pixelFont(11); box.state = mod["enabled"] as? Bool == true ? .on : .off
+            return (mod["id"] as? String ?? "", box)
+        }
+        let stack = NSStackView(views: entries.isEmpty ? [NSTextField(wrappingLabelWithString: "No native client mods installed yet.")] : entries.map { $0.1 })
+        stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 12
+        stack.frame = NSRect(x: 0, y: 0, width: 520, height: CGFloat(max(220, entries.count * 40)))
+        scroll.documentView = stack; alert.accessoryView = scroll
         alert.beginSheetModal(for: window) { response in
-            if response == .alertFirstButtonReturn { self.run("horizons-load") }
+            guard response == .alertFirstButtonReturn else { return }
+            let values = Dictionary(uniqueKeysWithValues: entries.map { ($0.0, $0.1.state == .on) })
+            guard let data = try? JSONSerialization.data(withJSONObject: values), let text = String(data: data, encoding: .utf8) else { return }
+            self.run("client-mod-save", [text])
         }
     }
     @objc func addonsAction() {
@@ -627,7 +641,7 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         let picker = NSOpenPanel()
         picker.title = "Install Minecraft Bedrock Add-ons"
-        picker.message = "Choose .mcpack, .mcaddon, or a ZIP containing Bedrock packs."
+        picker.message = "Choose .mcpack, .mcaddon, a Bedrock pack ZIP, or a native client-mod ZIP. Native client mods run code in Minecraft on startup."
         picker.prompt = "Install"
         picker.allowedFileTypes = ["mcpack", "mcaddon", "zip"]
         picker.allowsMultipleSelection = true; picker.canChooseDirectories = false

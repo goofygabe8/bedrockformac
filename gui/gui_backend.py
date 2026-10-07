@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import time
+import threading
 import urllib.request
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent
@@ -53,8 +54,11 @@ def close_game():
     emit('result', ok=True, message='Close requested. Finish any save or confirmation in Minecraft.')
 
 
+EMIT_LOCK = threading.Lock()
+
 def emit(kind, **values):
-    print(json.dumps(dict(kind=kind, **values)), flush=True)
+    with EMIT_LOCK:
+        print(json.dumps(dict(kind=kind, **values)), flush=True)
 
 
 def execute(args, **kw):
@@ -216,10 +220,13 @@ def play(value):
     logs = ROOT/'.gui-logs'
     logs.mkdir(exist_ok=True, mode=0o700)
     target = logs/'last-game.log'
+    from client_mods import prepare, load_for_game
+    mods = prepare(PREFIX, WINE, game, lambda message: emit('progress', message=message))
     emit('progress', message='Launching Minecraft…')
     process = subprocess.Popen([str(WINE), str(game)], cwd=game.parent, env=env,
                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors='replace', bufsize=1)
     emit('game', pid=process.pid, version=value)
+    threading.Thread(target=load_for_game, args=(mods, PREFIX, WINE, game, lambda: process.poll() is None, lambda message: emit('progress', message=message)), daemon=True).start()
     with target.open('w') as output:
         os.chmod(target, 0o600)
         for line in process.stdout:
@@ -288,45 +295,6 @@ def paste_text():
     emit('result', ok=True, message='Text sent to Minecraft. Review it before pressing Enter. Long text may be limited by the game field.')
 
 
-def file_digest(path):
-    digest = hashlib.sha256()
-    with path.open('rb') as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b''):
-            digest.update(block)
-    return digest.hexdigest()
-
-
-def horizons(load=False):
-    active = games()
-    if len(active) != 1:
-        raise RuntimeError('Launch one Minecraft game first. To load Horizons, save and leave your world, keeping Minecraft at its main menu.')
-    env = os.environ.copy(); env.update(WINEPREFIX=str(PREFIX), WINEDEBUG='-all')
-    env.pop('WINEGDK_PREAUTH_DEVICE', None)
-    helper = ROOT/'horizons_loader.exe'
-    status = execute([WINE, helper, '--status'], env=env, timeout=20)
-    if not load:
-        emit('result', ok=True, message=status.replace('\n', '. ') + '. The /bhl pack alone does not draw terrain. Load the native client each game session, then use .horizons realm on in your world.')
-        return
-    if 'Native client: loaded' in status:
-        emit('result', ok=True, message='The native client is already loaded. Use .horizons status in your world. If it gives no reply, the script did not initialize; restart Minecraft before loading again.')
-        return
-    game = VERSIONS/active[0]['version']/'Minecraft.Windows.exe'
-    if file_digest(game) != '4a92bfa3ce2428b40ee517b7c1125d9f6f79274382de03846351992663b2e2e4':
-        raise RuntimeError('This experimental Horizons bridge supports only the pinned Minecraft 1.26.52.3 game. Select that installed version first.')
-    bridge = ROOT/'experimental-horizons/Latite.dll'
-    if not bridge.is_file() or file_digest(bridge) != '13944cb8300f5ff59302e5476e7ea68b3f24d7306af4a6b15103bec02b627b58':
-        raise RuntimeError('Install the matching Experimental Horizons client package first. Importing the world companion .mcpack only installs its behavior pack.')
-    locations = [path for path in (PREFIX/'drive_c/users').glob('*/AppData/Local/Latite') if (path/'Plugins/BedrockHorizons/main.js').is_file()]
-    if len(locations) != 1:
-        raise RuntimeError('The Horizons client script is missing or ambiguous. Run Install Experimental Horizons.command from the client package first.')
-    engine = locations[0]/'Assets/ChakraCore.dll'
-    if not engine.is_file() or file_digest(engine) != 'ff1130fb68da737b2de1670729e328a5c4fbcac1eddd2be78bfdb03da6c5e8ff':
-        raise RuntimeError('The Horizons script engine is missing or differs from the package. Reinstall the experimental client package first.')
-    emit('progress', message='Loading the experimental Horizons client…')
-    execute([WINE, helper, 'Z:' + str(bridge).replace('/', '\\')], env=env, timeout=25)
-    emit('result', ok=True, message='Native library loaded; terrain rendering is not yet confirmed. Join your world and use .horizons status, then .horizons realm on. Load Horizons again after each Minecraft restart.')
-
-
 def main():
     os.chdir(ROOT)
     action = sys.argv[1]
@@ -343,8 +311,13 @@ def main():
     elif action == 'play': play(sys.argv[2])
     elif action == 'close_game': close_game()
     elif action == 'paste-text': paste_text()
-    elif action == 'horizons-status': horizons()
-    elif action == 'horizons-load': horizons(load=True)
+    elif action == 'client-mods':
+        from client_mods import installed
+        emit('result', ok=True, mods=[dict(id=data['id'], name=data['name'], version=data['version'], enabled=data['enabled']) for _, data in installed()])
+    elif action == 'client-mod-save':
+        from client_mods import save_preferences
+        save_preferences(json.loads(sys.argv[2]))
+        emit('result', ok=True, message='Client mod choices saved for the next Minecraft start.')
     elif action == 'settings':
         from launcher_settings import settings
         emit('result', ok=True, **settings(PREFIX))
@@ -354,7 +327,19 @@ def main():
                 raise RuntimeError('Close Minecraft before installing add-ons so it can reload the packs. Use Close Game and finish saving first.')
         check_game_closed()
         from addon_installer import install
-        emit('result', ok=True, **install(PREFIX, sys.argv[2:], lambda message: emit('progress', message=message), check_game_closed))
+        from client_mods import install_archive, is_mod_archive
+        packs, native = [], []
+        for value in sys.argv[2:]:
+            if is_mod_archive(value): native.append(value)
+            else: packs.append(value)
+        if not packs and not native: raise RuntimeError('Choose at least one pack or client-mod archive.')
+        messages = []
+        progress = lambda message: emit('progress', message=message)
+        if packs: messages.append(install(PREFIX, packs, progress, check_game_closed)['message'])
+        for value in native:
+            check_game_closed()
+            messages.append(install_archive(value, progress))
+        emit('result', ok=True, message='\n\n'.join(messages))
     elif action == 'addons-list':
         from addon_installer import shared_store, installed_packs
         emit('result', ok=True, packs=[info for _, info in installed_packs(shared_store(PREFIX))],
