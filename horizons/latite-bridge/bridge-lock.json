@@ -50,7 +50,7 @@
       "matches": 1
     }
   },
-  "runtime_validation": "Native 0.1.1 crashed at startup three times. Disabling it restored world loading. Native 0.1.2 handles optional WinRT trust errors and per-plugin startup errors; corrected in-game operation remains unconfirmed.",
+  "runtime_validation": "Native 0.1.1 crashed at startup; native 0.1.2 logged missing WinRT activation and D3D11On12 failure, and the user reported lost mouse input. Disabling native restored normal gameplay. Native 0.1.3 removes input/desktop overlay hooks and unused eager socket activation; gameplay remains unconfirmed.",
   "released_dll": {
     "tag": "v2.9.1",
     "published_at": "2026-08-15T21:51:47Z",
@@ -62,7 +62,21 @@
     "src/client/script/globals/GameScriptingObject.h": "93d020a1ef87ca51851d90ba5a772dfc0eb55d406fada5f6285452e34ae8b08c",
     "src/client/script/libraries/Filesystem.cpp": "43126bebbcb9847ff9fffffada4c091221012aa8a678348df9d139d80077cc29",
     "src/client/script/JsPlugin.cpp": "12d79eba1c9bac39d00a88d167c1a0b00f59fdc4a0febd9cfa5f93130c332837",
-    "src/client/script/PluginManager.cpp": "7ff1e3cc678bc2f843d1d28cba6fb1140ebb499af5b270b2580a9f610a71ce20"
+    "src/client/script/PluginManager.cpp": "7ff1e3cc678bc2f843d1d28cba6fb1140ebb499af5b270b2580a9f610a71ce20",
+    "src/client/memory/hook/hooks/DXHooks.cpp": "1d39548e7097a440e30257aca4439ffbaf9f1fde1583e5ec862a695384b2a912",
+    "src/client/memory/hook/hooks/OptionHooks.cpp": "e7d63a5b72d9fe644e6d8de0d168a075e0be94d77481a26ec535410ee8faf86b",
+    "src/client/memory/hook/hooks/PlayerHooks.cpp": "46aa92286d3e5bc3918a6344523572c32a900c9cfe148e8702935d08e4a836b6",
+    "src/client/memory/hook/hooks/RenderControllerHooks.cpp": "874c19fd2c386ddad4694e8fe4b94763441c7a1087978a83eda9a29c559b2e1c",
+    "src/client/memory/hook/hooks/CustomSkinPickerHooks.cpp": "ef2d60ef709baa3021884597829ee1cf685385d4c5018dfc225e7a90238adbd5",
+    "src/client/memory/hook/hooks/ScreenViewHooks.cpp": "04dd1877c79196b745c9aef14cfe1bb8d4175b752e0a2b38f403680b9ed2437e",
+    "src/client/feature/module/ModuleManager.cpp": "80e9312a4c4fdd1c39c9d4bfb250f06c4b6495ec415e0292b6b753e649a97e99",
+    "src/client/screen/ScreenManager.cpp": "055314bf0b27a92796c685d58794ba1ee5ba2010cb969e49fc5c8fdffc6c0922",
+    "src/client/memory/hook/hooks/GeneralHooks.cpp": "5f4165826fda6129f2cdb0f73a8a8867a89349b4a962302cc82f55c01185df4e",
+    "src/client/memory/hook/hooks/MinecraftGameHooks.cpp": "2d6b3295f0bb0cac855468a9c47ad5f0e491de717a8327ad8a77e7d93710ba36",
+    "src/client/Latite.cpp": "3da0c0b1a941e3586b4d48dc205dd142f1a30248e0041ea08a06e0a109659052",
+    "src/client/script/JsScript.cpp": "188d92c7da690df2c7b91211a5d98b6b444b6ca72a48eb5d63fe98881b081c5f",
+    "src/client/script/class/classes/JsWebSocket.h": "d70c10087d6198f4835a25dd91848da1714eeb8cd4c31858f9900fe14aa357ea",
+    "src/client/script/globals/Graphics3DScriptingObject.cpp": "92f882a49225392589d69f7faa32fb47e4dcf101d69fd23dce6431092baea3ed"
   },
   "api": {
     "method": "dimension.getSurface(x,z)",
@@ -88,9 +102,9 @@
   },
   "filesystem": "Relative plugin paths always resolve to the plugin directory, preventing CWD cache collisions; absolute paths retain upstream behavior.",
   "native_compile": {
-    "status": "success",
-    "url": "https://github.com/goofygabe8/bedrockformac/actions/runs/37702220340",
+    "status": "pending",
     "gameplay_validation": false
   },
-  "startup_compatibility": "Optional online plugin trust failures retain untrusted permissions instead of terminating Minecraft. Per-plugin WinRT/C++ startup errors are logged and skip that plugin."
+  "startup_compatibility": "Optional online plugin trust failures retain untrusted permissions instead of terminating Minecraft. Per-plugin WinRT/C++ startup errors are logged and skip that plugin.",
+  "minimal_client": "Terrain/chat/world lifecycle only. No window-procedure, input, cursor, controller, DirectX presentation, Direct2D overlay, built-in module or menu hooks. In-game Graphics3D restores shader color."
 }

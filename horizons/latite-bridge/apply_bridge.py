@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 import sys
+import minimal_client
 
 HERE = Path(__file__).resolve().parent
 TARGETS = (
@@ -12,7 +13,7 @@ TARGETS = (
     "src/client/script/libraries/Filesystem.cpp",
     "src/client/script/JsPlugin.cpp",
     "src/client/script/PluginManager.cpp",
-)
+) + minimal_client.TARGETS
 
 def main():
     if len(sys.argv) != 2:
@@ -31,7 +32,9 @@ def main():
     for relative, data in originals.items():
         newline = "\r\n" if b"\r\n" in data else "\n"
         text = data.decode("utf-8").replace("\r\n", "\n")
-        if relative.endswith("JsPlugin.cpp"):
+        if relative in minimal_client.TARGETS:
+            text = minimal_client.apply(relative, text)
+        elif relative.endswith("JsPlugin.cpp"):
             start = text.index('    // Check plugin permissions\n    checkTrusted();')
             text = text[:start] + text[start:].replace('    // Check plugin permissions\n    checkTrusted();', '''    // Online trust is optional. An unavailable WinRT HTTP/crypto service must
     // retain normal untrusted permissions instead of terminating the host game.
@@ -82,7 +85,7 @@ def main():
                           '                                                   unsigned short argCount, void* callbackState);\n'
             text = text.replace(anchor, declaration + anchor)
         replacements[relative] = text.replace("\n", newline).encode("utf-8")
-    # Both files were fully checked before the first source write.
+    # Every target and replacement is checked before the first source write.
     for relative, data in replacements.items():
         (source / relative).write_bytes(data)
     print("Applied the observation-only bridge. known remains false; no readiness offsets were invented.")

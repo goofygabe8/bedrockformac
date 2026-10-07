@@ -1,10 +1,14 @@
-# Bedrock Horizons 0.1.2 — experimental development build
+# Bedrock Horizons 0.1.3 — experimental development build
 
 Original terrain-cache and world-companion code for a Distant Horizons-like Bedrock feature. This is a prototype, not a completed Distant Horizons port. No Minecraft game session has been used to validate it.
 
-## Native startup recovery
+## Native input and startup recovery
 
-Native 0.1.1 produced three identical startup crashes under Wine before the world loaded. The 0.1.2 bridge handles optional online plugin-trust failures as untrusted results instead of terminating Minecraft, and isolates/logs per-plugin WinRT/C++ startup failures. It never grants elevated permissions because a service failed. New native builds include debugging symbols for more precise follow-up diagnostics. Client package 0.1.2 retains the 0.1.1 companion handshake and settings protocol. The corrected DLL still needs gameplay confirmation; the mod may be skipped if another startup service is unavailable.
+Native 0.1.1 produced three startup crashes under Wine. Native 0.1.2 kept optional trust checks untrusted on failure, but its log exposed another missing WinRT service and a failed D3D11On12 overlay; selecting a world also lost mouse control. The game worked after disabling the native mod.
+
+Native 0.1.3 uses a narrow terrain scripting bridge: it does not intercept the window procedure, mouse, keyboard, controller, camera input or cursor capture. It does not hook DirectX presentation or initialize the desktop overlay, built-in modules or overlay menus. Minecraft retains its own input and UI. Graphics3D terrain drawing remains in the game renderer, skips empty batches and restores shader color. An unused WebSocket member no longer activates an unavailable WinRT service during script registration. Optional online trust failures still retain untrusted permissions.
+
+This rebuild needs in-game confirmation. The installed native mod stays disabled after the regression; re-enable it in **Client Mods…** only for a fresh game launch when ready to try the corrected build. Close Minecraft first: an already loaded DLL cannot be repaired by updating its files. Client package 0.1.3 retains the 0.1.1 companion handshake and settings protocol. Debug symbols and full corresponding native source are included.
 
 ## What is implemented
 
@@ -45,7 +49,7 @@ Use `/bhl:config false` to stop generation. No experiment/beta Script API toggle
 
 ## Client controls
 
-On **Bedrock for Mac 0.5.5 or newer**, close Minecraft and import **Bedrock-Horizons-Client-Mod.zip** using **Install Add-ons…**. The generic client-mod loader registers it and automatically loads it on future game starts, only on the compatible game build. **Client Mods…** can disable it. There are no Horizons-specific launcher controls. The included install script also registers the package with this loader; manual loading scripts are legacy developer tools.
+On **Bedrock for Mac 0.5.5 or newer**, close Minecraft and import **Bedrock-Horizons-Client-Mod.zip** using **Install Add-ons…**. The generic client-mod loader registers it and loads it on future game starts when enabled, only on the compatible game build. **Client Mods…** can disable it. There are no Horizons-specific launcher controls. The included install script also registers the package with this loader; manual loading scripts are legacy developer tools.
 
 Also import **Bedrock-Horizons-Realm-Addon.mcaddon** (companion and book resources together) and activate it on your world. Run `.horizons realm on` to connect to the world companion. This connects settings even when generation is off. Native loading and visible rendering have not been confirmed in a game session.
 
