@@ -4,7 +4,7 @@ import CoreGraphics
 import Darwin
 
 // The update builder sets this before compiling each release.
-let launcherVersion = "0.4.3"
+let launcherVersion = "0.5.0"
 
 func pixelFont(_ size: CGFloat) -> NSFont { NSFont(name: "Monocraft", size: size) ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular) }
 func rgb(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> NSColor { NSColor(calibratedRed: r/255, green: g/255, blue: b/255, alpha: 1) }
@@ -255,6 +255,10 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var closeGameButton: NSButton!
     var showGameButton: NSButton!
     var updateButton: NSButton!
+    var frameGenerationButton: NSButton!
+    let frameGenerationRate = BlockPopUp(frame: .zero, pullsDown: false)
+    let frameGenerationStatus = NSTextField(wrappingLabelWithString: "Off. Experimental smoothing needs macOS 26+ and Screen Recording permission. It may add delay and HUD artifacts.")
+    var frameGenerationProcess: Process?
     var settingsEditor: SettingsEditor?
     var buttons: [NSButton] = []
     var busy = false
@@ -348,12 +352,18 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
         closeGameButton = button("Close Game", #selector(closeGameAction))
         showGameButton = button("Show Game", #selector(showGameAction))
         updateButton = button("Check for Updates", #selector(updateAction))
+        frameGenerationButton = button("Start Frame Generation", #selector(frameGenerationAction))
+        frameGenerationRate.addItems(withTitles: ["60 → 120 FPS", "40 → 80 FPS", "30 → 60 FPS"])
+        frameGenerationRate.font = pixelFont(11)
+        frameGenerationStatus.font = pixelFont(10); frameGenerationStatus.textColor = .secondaryLabelColor
+        frameGenerationStatus.preferredMaxLayoutWidth = 680
         let game = section("PLAY", [row([installedTitle, installed, play]), row([downloadTitle, releases, download]),
                                     row([highResolution, button("Settings…", #selector(settingsAction))]),
                                     row([showGameButton, closeGameButton, button("Open Game Logs", #selector(logsAction))])])
         let devices = section("CONTROLLER & AUDIO", [controller, row([button("Refresh Controllers", #selector(refreshAction)), button("Audio Output…", #selector(audioAction))])])
         let updates = section("UPDATES", [row([updateLabel, updateButton, button("Open Releases", #selector(releasesAction))])])
-        let stack = NSStackView(views: [title, subtitle, row([account, signIn]), game, devices, updates, row([spinner, status])])
+        let interpolation = section("FRAME GENERATION / EXPERIMENTAL", [row([frameGenerationRate, frameGenerationButton]), frameGenerationStatus])
+        let stack = NSStackView(views: [title, subtitle, row([account, signIn]), game, devices, interpolation, updates, row([spinner, status])])
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 12
         stack.translatesAutoresizingMaskIntoConstraints = false
         let scroll = NSScrollView(); scroll.hasVerticalScroller = true; scroll.drawsBackground = false
@@ -371,6 +381,7 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
             stack.topAnchor.constraint(equalTo: document.topAnchor, constant: 28),
             stack.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -28),
             game.widthAnchor.constraint(equalTo: stack.widthAnchor), devices.widthAnchor.constraint(equalTo: stack.widthAnchor), updates.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            interpolation.widthAnchor.constraint(equalTo: stack.widthAnchor), frameGenerationStatus.widthAnchor.constraint(equalTo: interpolation.widthAnchor, constant: -36),
             status.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -32)])
         let menu = NSMenu()
         let appItem = NSMenuItem(); let appMenu = NSMenu()
@@ -397,6 +408,10 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
         closeGameButton.isEnabled = !value && gamePID != nil
         showGameButton.isEnabled = !value && gamePID != nil
         highResolution.isEnabled = !value
+        let interpolationRunning = frameGenerationProcess != nil
+        frameGenerationButton.isEnabled = interpolationRunning || (!value && runningGame && ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26)
+        frameGenerationRate.isEnabled = !interpolationRunning
+        frameGenerationButton.title = interpolationRunning ? "Stop Frame Generation" : "Start Frame Generation"
         play.title = gameLaunching ? "Launching…" : (runningGame ? "Minecraft Is Open" : "Play Minecraft")
         play.invalidateIntrinsicContentSize()
         if value || gameLaunching { spinner.startAnimation(nil) } else { spinner.stopAnimation(nil) }
@@ -581,6 +596,50 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
         run("settings")
     }
     @objc func highResolutionAction() { run("high-resolution", ["{\"high_resolution\":" + (highResolution.state == .on ? "true" : "false") + "}"]) }
+    @objc func frameGenerationAction() {
+        if let active = frameGenerationProcess { if active.isRunning { active.terminate() }; return }
+        guard let pid = gamePID, runningGame else { return }
+        let candidates = [URL(fileURLWithPath: "/Applications/Minecraft Bedrock.app/Contents/MacOS/BedrockFrameGeneration"),
+                          FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/Minecraft Bedrock.app/Contents/MacOS/BedrockFrameGeneration"),
+                          root.appendingPathComponent("frame_generation")]
+        guard let executable = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0.path) }) else {
+            frameGenerationStatus.stringValue = "Frame generation is missing. Close Minecraft and check for launcher updates."; return
+        }
+        let process = Process(); process.executableURL = executable
+        process.arguments = [String(pid), String(getpid()), String([60, 40, 30][max(0, frameGenerationRate.indexOfSelectedItem)])]
+        let pipe = Pipe(); process.standardOutput = pipe; process.standardError = FileHandle.nullDevice
+        do {
+            try process.run(); frameGenerationProcess = process
+            frameGenerationStatus.stringValue = "Preparing frame generation…"; setBusy(busy)
+            DispatchQueue.global(qos: .userInitiated).async {
+                var pending = Data(); var reportedError = false
+                while true {
+                    let chunk = pipe.fileHandleForReading.availableData
+                    if chunk.isEmpty { break }
+                    pending.append(chunk)
+                    while let end = pending.firstIndex(of: 10) {
+                        let line = pending.subdata(in: 0..<end); pending.removeSubrange(0...end)
+                        guard let data = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { continue }
+                        let kind = data["kind"] as? String ?? ""
+                        if kind == "error" || kind == "permission" { reportedError = true }
+                        let failed = reportedError
+                        DispatchQueue.main.async {
+                            if kind != "stopped" || !failed {
+                                self.frameGenerationStatus.stringValue = data["message"] as? String ?? ""
+                                self.frameGenerationStatus.textColor = failed ? .systemOrange : .secondaryLabelColor
+                            }
+                        }
+                    }
+                }
+                process.waitUntilExit()
+                let failed = reportedError
+                DispatchQueue.main.async {
+                    if self.frameGenerationProcess === process { self.frameGenerationProcess = nil; self.setBusy(self.busy) }
+                    if !failed { self.frameGenerationStatus.stringValue = "Off. Set the game's FPS limit to match the selected input rate before starting." }
+                }
+            }
+        } catch { frameGenerationStatus.stringValue = "Could not start frame generation: " + error.localizedDescription }
+    }
     @objc func closeGameAction() { run("close_game") }
     @objc func showGameAction() {
         if let pid = gamePID, let app = NSRunningApplication(processIdentifier: pid) { app.activate(options: [.activateIgnoringOtherApps]) }
@@ -603,6 +662,7 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if kill(pid, 0) != 0 && errno == ESRCH {
             if playTaskActive { return }
             gameTimer?.invalidate(); gameTimer = nil; gamePID = nil; gameLaunching = false; runningGame = false
+            if let active = frameGenerationProcess, active.isRunning { active.terminate() }
             if !busy { status.stringValue = "Minecraft closed. Ready to play again." }
             setBusy(busy); return
         }
@@ -629,6 +689,9 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.makeKeyAndOrderFront(nil); return true
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { !busy && !gameLaunching && !runningGame }
+    func applicationWillTerminate(_ notification: Notification) {
+        if let active = frameGenerationProcess, active.isRunning { active.terminate() }
+    }
 }
 let root = CommandLine.arguments.count > 1 ? URL(fileURLWithPath: CommandLine.arguments[1]) : URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
 let delegate = Launcher(root: root)

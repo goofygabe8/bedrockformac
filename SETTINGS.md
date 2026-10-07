@@ -12,7 +12,7 @@ These presets change graphics controls only. **Restore Defaults** selects the re
 
 The original Mac showed blue, translucent server UI with MSAA on the D3DMetal 4.0b2 Metal 4 backend. The user confirmed that Metal 3 with 4× MSAA corrects it. The exact runtime defect is not established, and performance differences have not been measured. Metal 3 remains the compatibility default; Metal 4 is experimental and can reproduce that issue.
 
-MetalFX frame interpolation is a separate integration, and is [available with both Metal 3 and Metal 4](https://developer.apple.com/metal/Metal-Feature-Set-Tables.pdf). This launcher does not implement frame generation.
+MetalFX frame interpolation is a separate integration, and is [available with both Metal 3 and Metal 4](https://developer.apple.com/metal/Metal-Feature-Set-Tables.pdf). The optional display-side interpolation mode added in 0.5.0 uses VideoToolbox estimated motion, rather than engine motion/depth through MetalFX.
 
 ## Display
 
@@ -77,3 +77,18 @@ MetalFX frame interpolation is a separate integration, and is [available with bo
 **Audio Output…** opens the runtime’s Audio tab for selecting an output device. Device changes apply after restarting Minecraft. Volume controls are in the Sound tab.
 
 **Close Game** sends a normal close request. Finish any save or confirmation shown by Minecraft. **Show Game** activates its window. **Open Game Logs** opens the local diagnostics folder; review logs before sharing them.
+
+## Experimental frame generation
+
+Version 0.5.0 adds optional display-side interpolation using Apple's VideoToolbox low-latency frame processor. It estimates motion from two captured game images and synthesizes a midpoint frame; it does not extract Minecraft's engine motion vectors or use the MetalFX game-renderer interpolator. Engine integration would also need depth, correct motion-vector conventions, and HUD separation.
+
+The mode starts **off**. It requires macOS 26+, compatible Apple silicon hardware, and Screen & System Audio Recording permission. The original M1 Pro reports API support. Successful playback, visual quality, and performance are not yet confirmed. Captured window pixels stay in memory; no recording files or capture audio are created.
+
+1. Before playing, set Minecraft's FPS limit to match the selected input rate: 60 for 60 → 120, 40 for 40 → 80, or 30 for 30 → 60. Launcher settings apply on the next game start; the game's own settings can also be used.
+2. Launch Minecraft, then press **Start Frame Generation**. Accept the macOS recording permission if prompted. If macOS requires it, enable the app in System Settings → Privacy & Security → Screen & System Audio Recording, then start frame generation again.
+3. Use **Stop Frame Generation** in the launcher, or the **FG** menu-bar item, to return to normal output. The mode stops when the game or launcher closes.
+
+Capture starts at native window resolution where supported, scaling down only to the processor's supported size while preserving the aspect ratio. Presentation is paced on a separate queue, and live status reports captured, generated, and actually presented frames separately. Processing adds a two-input-frame presentation buffer plus capture/processing overhead. It can introduce HUD artifacts, ghosting, or weaker responsiveness and does not increase game simulation speed. Resize the game before enabling it; changing window shape requires restarting the mode. If the processor cannot keep pace, it stops rather than repeatedly showing late generated frames. Try a smaller window or the 30 → 60 mode.
+
+Apple references: [low-latency interpolation](https://developer.apple.com/documentation/videotoolbox/vtlowlatencyframeinterpolationconfiguration), [ScreenCaptureKit](https://developer.apple.com/documentation/screencapturekit/capturing-screen-content-in-macos), and [MetalFX motion textures](https://developer.apple.com/documentation/metalfx/mtlfxframeinterpolatorbase/motiontexture).
+

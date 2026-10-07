@@ -34,6 +34,11 @@ def main():
     if source.is_file() and (not binary.is_file() or source.stat().st_mtime > binary.stat().st_mtime):
         print('Compiling the native launcher window…')
         subprocess.run(['/usr/bin/swiftc', '-swift-version', '5', '-O', '-target', 'arm64-apple-macos11.0', str(source), '-o', str(binary)], check=True)
+    helper_source = ROOT/'frame_generation.swift'
+    helper_binary = ROOT/'frame_generation'
+    if not helper_binary.is_file() or helper_source.stat().st_mtime > helper_binary.stat().st_mtime:
+        print('Compiling experimental frame generation…')
+        subprocess.run(['/usr/bin/swiftc', '-swift-version', '5', '-O', '-target', 'arm64-apple-macos12.3', str(helper_source), '-o', str(helper_binary)], check=True)
     gui = io.BytesIO()
     with zipfile.ZipFile(gui, 'w', zipfile.ZIP_DEFLATED) as archive:
         for name in sorted(GUI_FILES):
