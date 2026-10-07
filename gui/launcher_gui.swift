@@ -3,6 +3,8 @@ import CoreText
 import CoreGraphics
 import Darwin
 
+// The update builder sets this before compiling each release.
+let launcherVersion = "0.4.1"
 
 func pixelFont(_ size: CGFloat) -> NSFont { NSFont(name: "Monocraft", size: size) ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular) }
 func rgb(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> NSColor { NSColor(calibratedRed: r/255, green: g/255, blue: b/255, alpha: 1) }
@@ -260,6 +262,8 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var playTaskActive = false
     var savedHighResolution = true
     var updatesDeferred = false
+    var relaunchProcess: Process?
+    var relaunchTimer: Timer?
     var gameLaunching = false
     var gamePID: pid_t?
     var gameTimer: Timer?
@@ -375,7 +379,9 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let editItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: ""); let edit = NSMenu(title: "Edit")
         edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         editItem.submenu = edit; menu.addItem(editItem); NSApp.mainMenu = menu
+        updateLabel.stringValue = "v" + launcherVersion
         window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+        acknowledgeRelaunch()
         run("bootstrap")
     }
     func setBusy(_ value: Bool) {
@@ -410,6 +416,7 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let errorPipe = Pipe(); process.standardError = errorPipe
             var environment = ProcessInfo.processInfo.environment
             environment["PYTHONUNBUFFERED"] = "1"
+            environment["BEDROCK_GUI_VERSION"] = launcherVersion
             environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
             process.environment = environment
             var receivedResult = false
@@ -453,7 +460,13 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let success = data["ok"] as? Bool ?? false
         status.textColor = success ? .secondaryLabelColor : .systemOrange
         if let deferred = data["deferred"] as? Bool { updatesDeferred = deferred }
-        if let version = data["version"] as? String { updateLabel.stringValue = "v" + version + (updatesDeferred ? " / Update after closing game" : " / Checked on startup") }
+        if let installedVersion = data["version"] as? String {
+            updateLabel.stringValue = "v" + launcherVersion + (installedVersion != launcherVersion ? " / Restart to finish update" : (updatesDeferred ? " / Update after closing game" : " / Checked on startup"))
+        }
+        if success && data["restart"] as? Bool == true {
+            restartLauncher(expectedVersion: data["version"] as? String ?? launcherVersion)
+            return
+        }
         if let high = data["high_resolution"] as? Bool { savedHighResolution = high; highResolution.state = high ? .on : .off }
         if action == "high-resolution" && !success { highResolution.state = savedHighResolution ? .on : .off }
         if action == "status", success {
@@ -494,12 +507,6 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // The game action stays alive in the background while other actions run.
         if action == currentAction || !busy { currentAction = ""; setBusy(false) }
         else { setBusy(busy) }
-        if data["restart"] as? Bool == true {
-            status.stringValue = "Update installed. Reopening the launcher…"
-            let process = Process(); process.executableURL = root.appendingPathComponent("launcher_gui")
-            process.arguments = [root.path]
-            try? process.run(); NSApp.terminate(nil); return
-        }
         if action == "catalog" && success && !runningGame && !gameLaunching { status.stringValue = authenticated && !installedValues.isEmpty ? "Ready to play." : "Sign in and download Minecraft to get started." }
         if action == "bootstrap" && success { run("status"); return }
         if action == "status" && startup { startup = false; run("catalog"); return }
@@ -511,7 +518,64 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc func accountAction() { run(authenticated ? "logout" : "login") }
     @objc func refreshAction() { run("status") }
     @objc func audioAction() { run("audio") }
-    @objc func updateAction() { run("update") }
+    @objc func updateAction() {
+        if let editor = settingsEditor, editor.window.isVisible {
+            status.stringValue = "Save or close Settings before updating the launcher."
+            editor.window.makeKeyAndOrderFront(nil); return
+        }
+        run("update")
+    }
+    func acknowledgeRelaunch() {
+        let arguments = CommandLine.arguments
+        guard arguments.count == 4, arguments[2] == "--relaunch-token", UUID(uuidString: arguments[3]) != nil else { return }
+        let directory = root.appendingPathComponent(".launcher-relaunch", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            let file = directory.appendingPathComponent(arguments[3] + ".json")
+            let data = try JSONSerialization.data(withJSONObject: ["version": launcherVersion, "pid": ProcessInfo.processInfo.processIdentifier])
+            try data.write(to: file, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        } catch {
+            status.stringValue = "The launcher opened, but could not confirm its restart: " + error.localizedDescription
+        }
+    }
+    func restartLauncher(expectedVersion: String) {
+        guard relaunchProcess == nil else { return }
+        currentAction = "restart"; setBusy(true)
+        status.stringValue = "Update installed. Reopening the launcher…"
+        let token = UUID().uuidString
+        let ack = root.appendingPathComponent(".launcher-relaunch/" + token + ".json")
+        let process = Process(); process.executableURL = root.appendingPathComponent("launcher_gui")
+        process.arguments = [root.path, "--relaunch-token", token]
+        process.currentDirectoryURL = root
+        process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
+        let deadline = Date().addingTimeInterval(15)
+        do {
+            try process.run(); relaunchProcess = process
+            relaunchTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] timer in
+                guard let self = self else { timer.invalidate(); return }
+                if let bytes = try? Data(contentsOf: ack),
+                   let response = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any],
+                   response["version"] as? String == expectedVersion,
+                   response["pid"] as? Int == Int(process.processIdentifier) {
+                    timer.invalidate(); self.relaunchTimer = nil
+                    try? FileManager.default.removeItem(at: ack)
+                    NSApp.terminate(nil); return
+                }
+                if !process.isRunning || Date() >= deadline {
+                    timer.invalidate(); self.relaunchTimer = nil
+                    if process.isRunning { process.terminate() }
+                    try? FileManager.default.removeItem(at: ack)
+                    self.relaunchProcess = nil; self.currentAction = ""; self.setBusy(false)
+                    self.status.textColor = .systemOrange
+                    self.status.stringValue = "The update is installed, but reopening failed. Quit and open Minecraft Bedrock from Applications to finish."
+                }
+            }
+        } catch {
+            currentAction = ""; setBusy(false); status.textColor = .systemOrange
+            status.stringValue = "The update is installed, but the launcher could not reopen: " + error.localizedDescription
+        }
+    }
     @objc func settingsAction() {
         if let editor = settingsEditor, editor.window.isVisible { editor.window.makeKeyAndOrderFront(nil); return }
         run("settings")

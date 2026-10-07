@@ -23,6 +23,14 @@ def main():
     files = {name: (ROOT / name).read_bytes() for name in sorted(ALLOWED) if name not in {'.launcher-version', 'launcher-edits.json'} and (ROOT / name).is_file()}
     source = ROOT/'launcher_gui.swift'
     binary = ROOT/'launcher_gui'
+    if source.is_file():
+        original = source.read_text()
+        updated, count = re.subn(r'^let launcherVersion = "\d+\.\d+\.\d+"$',
+                                'let launcherVersion = "' + value + '"', original, flags=re.MULTILINE)
+        if count != 1:
+            raise SystemExit('The launcher source is missing its embedded version. Update the launcher sources before building.')
+        if updated != original:
+            source.write_text(updated)
     if source.is_file() and (not binary.is_file() or source.stat().st_mtime > binary.stat().st_mtime):
         print('Compiling the native launcher window…')
         subprocess.run(['/usr/bin/swiftc', '-swift-version', '5', '-O', '-target', 'arm64-apple-macos11.0', str(source), '-o', str(binary)], check=True)

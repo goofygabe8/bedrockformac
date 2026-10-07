@@ -1,7 +1,6 @@
 """Background actions for the native Mac launcher; UI messages use JSON lines."""
 import contextlib
 import io
-import importlib
 import hashlib
 import tempfile
 import json
@@ -86,6 +85,7 @@ def controllers():
 
 
 def update():
+    running = os.environ.get('BEDROCK_GUI_VERSION')
     if games():
         emit('result', ok=True, version=(ROOT/'.launcher-version').read_text().strip(), deferred=True,
              message='Minecraft is open. Close it before checking for launcher updates.')
@@ -95,15 +95,16 @@ def update():
     output = io.StringIO()
     with contextlib.redirect_stdout(output):
         update_client.check()
-        if (ROOT/'.launcher-version').read_text().strip() != before:
-            importlib.invalidate_caches()
-            update_client = importlib.reload(update_client)
-        update_client.ensure_gui()
+    # Run the newly installed updater as source in a fresh process. The imported
+    # updater may still be the previous release, with an older asset list.
+    execute([sys.executable, ROOT/'update_client.py', '--ensure-gui'], timeout=60)
     after = (ROOT/'.launcher-version').read_text().strip()
     message = output.getvalue().strip()
     if before == after and 'unavailable' not in message.lower():
         message = 'Your launcher is up to date.'
-    emit('result', ok=True, version=after, restart=before != after, deferred=False,
+    # Older GUI releases don't report their running version. Reopen them once;
+    # the new GUI supplies it, so unchanged future checks do not restart it.
+    emit('result', ok=True, version=after, restart=before != after or running != after, deferred=False,
          message=message or 'Your launcher is up to date.')
 
 

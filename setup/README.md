@@ -31,7 +31,7 @@ Choose your anti-aliasing level in Minecraft's Video settings when using Simple 
 
 ## Updates and existing installations
 
-The app checks this repository's latest public release every time it starts, deferring installation while Minecraft is open. Downloads and files are verified against SHA-256 checksums. Offline checks allow the installed launcher to open. Game data is outside the update payload, and previous launcher code is kept for rollback.
+The app checks this repository's latest public release every time it starts, deferring installation while Minecraft is open. After an update, it opens the updated launcher automatically and closes the old window once the new window is ready. The displayed version identifies the running launcher. An older window with newer files already on disk is also reopened when it checks for updates. Downloads and files are verified against SHA-256 checksums. Offline checks allow the installed launcher to open. Game data is outside the update payload, and previous launcher code is kept for rollback.
 
 If you already used the command-based setup, start it to receive the update. Your following start opens the graphical window. The updater installs a single **Minecraft Bedrock.app** in Applications while retaining your existing game-data folder. The old command remains a launch shortcut.
 
@@ -39,7 +39,7 @@ The smaller **bedrock-mac-update.zip** asset is for the automatic updater. The *
 
 ## Publishing another fix
 
-After changing your local launcher, open **Build Launcher Update.command**, enter a new version (for example `0.4.1`), and upload the generated **bedrock-mac-update.zip** to a public GitHub Release tagged `v0.4.1`. Keep the asset name exactly `bedrock-mac-update.zip`. Changed Swift window code is compiled when building. Recipients receive your update on their next app launch.
+After changing your local launcher, open **Build Launcher Update.command**, enter a new version (for example `0.4.2`), and upload the generated **bedrock-mac-update.zip** to a public GitHub Release tagged `v0.4.2`. Keep the asset name exactly `bedrock-mac-update.zip`. Changed Swift window code is compiled when building. Recipients receive your update on their next app launch.
 
 The update builder packages code and GUI assets with patches against the original launcher source saved locally. It excludes accounts, worlds, Wine prefixes, game files, and upstream runtime files.
 
