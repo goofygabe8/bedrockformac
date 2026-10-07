@@ -23,7 +23,11 @@ The bridge is pinned to Latite commit `9f7463515dd298a496da918285936d78c7416aad`
 
 Activate **Bedrock-Horizons-Realm-Addon.mcaddon** on the Realm through a supported host device and enable the world's required resource-pack download option. It contains the behavior pack plus a tiny book resource pack using the built-in book texture. Console players receive the book automatically; the menu and per-player saved preferences use server-side scripting. No manual console file installation is needed. These UI paths have not yet been confirmed on physical consoles.
 
-**The Realm add-on cannot add distant terrain rendering to Xbox, PlayStation, Switch, or standard mobile clients.** Required packs distribute supported pack content; they cannot load this Windows DLL or change the console renderer. Native rendering is only for the pinned computer client. Generating server chunks does not increase an unmodified client's view distance. The book explains this rather than promising a console renderer.
+**This release does not add distant terrain rendering to Xbox, PlayStation, Switch, or standard mobile clients.** Required packs distribute supported pack content; they cannot load this Windows DLL or change the console renderer. Native rendering is only for the pinned computer client. Generating server chunks does not increase an unmodified client's view distance. The book explains this rather than promising a console renderer.
+
+### Possible future console renderer
+
+An [independent experimental add-on](https://github.com/FavoringFoil427/Distant-Horizons-UNOFFICIAL_MCPE) uses nearby custom entities whose scaled geometry represents distant terrain. Its README reports a single-player mobile target and explicitly lists multiplayer as unfinished; some rendering assumptions are still unverified. This suggests a possible pack-only approximation for consoles, not proof that it works on Realms or console hardware. A separate renderer would need per-player visibility, multiplayer budgets and hardware confirmation. This release does not implement that technique and does not include its code.
 
 ## World companion
 

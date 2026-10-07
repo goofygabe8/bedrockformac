@@ -97,14 +97,14 @@ export async function openMenu(player) {
     const choices = ["Distant Renderer Settings", "Renderer Presets", "Device Support & Connection", "Chat Commands", "Get Settings Book"];
     if (operator(player)) choices.push("World Generation • Operator");
     const menu = new ActionFormData().title("Horizons Settings Book")
-      .body(`Client handshake: ${state.connected ? "connected (rendering still needs confirmation)" : "not connected"}\nWorld generation: ${state.generation ? "allowed" : "off"}\n\nBook menus work on consoles, phones and computers. Extra distant terrain requires the native computer client; Realm packs cannot install it on consoles. Settings are saved for you in this world.`);
+      .body(`Client handshake: ${state.connected ? "connected (rendering still needs confirmation)" : "not connected"}\nWorld generation: ${state.generation ? "allowed" : "off"}\n\nBook menus work on consoles, phones and computers. This build draws extra distant terrain through the native computer client; Realm packs cannot install that native client on consoles. Settings are saved for you in this world.`);
     choices.forEach(choice => menu.button(choice));
     const result = await display(menu, player);
     if (!result || result.canceled) return;
     if (result.selection === 0) await clientSettings(player);
     else if (result.selection === 1) await presets(player);
     else if (result.selection === 2) await display(new ActionFormData().title("Horizons • Connection")
-      .body("Xbox, PlayStation, Switch and mobile: the Realm supplies this book and its menus. Extra distant rendering is unavailable on these standard clients.\n\nSupported computer client: install the matching native mod. On Bedrock for Mac, installed client mods load with Minecraft. Then join this world and type .horizons realm on.\n\n/bhl:config true only permits sampling. It does not load the client or draw terrain. A Realm owner must install this companion on the Realm. Library loading, a handshake, and visible terrain are separate checks.").button("OK"), player);
+      .body("Xbox, PlayStation, Switch and mobile: the Realm supplies this book and its menus. This build does not provide distant rendering on these standard clients.\n\nSupported computer client: install the matching native mod. On Bedrock for Mac, installed client mods load with Minecraft. Then join this world and type .horizons realm on.\n\n/bhl:config true only permits sampling. It does not load the client or draw terrain. A Realm owner must install this companion on the Realm. Library loading, a handshake, and visible terrain are separate checks.").button("OK"), player);
     else if (result.selection === 3) await display(new ActionFormData().title("Horizons • Commands").body(HELP).button("OK"), player);
     else if (result.selection === 4) giveBook(player);
     else if (result.selection === 5 && choices.length > 5) await generationSettings(player);
