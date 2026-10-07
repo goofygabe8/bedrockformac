@@ -1,6 +1,6 @@
 {
   "name": "Bedrock Horizons (Experimental)",
   "author": "bedrockformac contributors",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Distant surface cache and optional owner-controlled world companion. Requires a compatible native Latite bridge; not a resource pack."
 }

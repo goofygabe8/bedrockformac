@@ -1,6 +1,10 @@
-# Bedrock Horizons 0.1.1 — experimental development build
+# Bedrock Horizons 0.1.2 — experimental development build
 
 Original terrain-cache and world-companion code for a Distant Horizons-like Bedrock feature. This is a prototype, not a completed Distant Horizons port. No Minecraft game session has been used to validate it.
+
+## Native startup recovery
+
+Native 0.1.1 produced three identical startup crashes under Wine before the world loaded. The 0.1.2 bridge handles optional online plugin-trust failures as untrusted results instead of terminating Minecraft, and isolates/logs per-plugin WinRT/C++ startup failures. It never grants elevated permissions because a service failed. New native builds include debugging symbols for more precise follow-up diagnostics. Client package 0.1.2 retains the 0.1.1 companion handshake and settings protocol. The corrected DLL still needs gameplay confirmation; the mod may be skipped if another startup service is unavailable.
 
 ## What is implemented
 

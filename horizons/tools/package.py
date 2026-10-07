@@ -48,7 +48,7 @@ with tempfile.TemporaryDirectory(prefix="bhl-package-", dir=ROOT / "build") as t
                    for name in ("main.js", "cache.js", "mesh.js", "tile.js", "plugin.json")]
         mapping.append({"source": "native/ChakraCore.dll", "destination": "Latite/Assets/ChakraCore.dll"})
         mod = {"format_version": 1, "id": "bedrock-horizons", "name": "Bedrock Horizons (Experimental)",
-               "version": "0.1.1", "entrypoint": "native/Latite.dll", "game_sha256": [metadata["game_sha256"]],
+               "version": json.loads((ROOT / "client/plugin.json").read_text())["version"], "entrypoint": "native/Latite.dll", "game_sha256": [metadata["game_sha256"]],
                "local_appdata_files": mapping,
                "files": {path.relative_to(staging).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
                          for path in sorted(staging.rglob("*")) if path.is_file()}}
