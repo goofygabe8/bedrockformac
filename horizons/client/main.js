@@ -67,11 +67,17 @@ function connect() {
   game.executeCommand("/bhl:hello 0.1.1 " + nonce);
 }
 function protocol(event) {
+  // The pinned native SDK reports text-packet types as strings; older bridge
+  // callers used numeric packet IDs. Accept only the same server text classes.
+  var type = event.type;
+  if (type === "raw") type = 0;
+  else if (type === "system_message") type = 6;
+  else if (type === "text_object") type = 10;
   // Targeted server raw/system/object messages only; never consume ordinary player chat.
   if (!companion || typeof event.message !== "string" || event.message.length > 1000 ||
-      [0, 6, 10].indexOf(event.type) < 0 || (event.sender && event.sender.length)) return;
+      [0, 6, 10].indexOf(type) < 0 || (event.sender && event.sender.length)) return;
   var text = event.message;
-  if (event.type === 10 && text[0] === "{") {
+  if (type === 10 && text[0] === "{") {
     try {
       var objectText = JSON.parse(text);
       if (!objectText || !Array.isArray(objectText.rawtext) || objectText.rawtext.length !== 1 ||

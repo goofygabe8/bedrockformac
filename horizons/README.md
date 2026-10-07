@@ -1,12 +1,12 @@
 # Bedrock Horizons 0.1.3 — experimental development build
 
-Original terrain-cache and world-companion code for a Distant Horizons-like Bedrock feature. This is a prototype, not a completed Distant Horizons port. No Minecraft game session has been used to validate it.
+Original terrain-cache and world-companion code for a Distant Horizons-like Bedrock feature. This is a prototype, not a completed Distant Horizons port. Successful distant-terrain rendering has not been confirmed in Minecraft.
 
 ## Native input and startup recovery
 
 Native 0.1.1 produced three startup crashes under Wine. Native 0.1.2 kept optional trust checks untrusted on failure, but its log exposed another missing WinRT service and a failed D3D11On12 overlay; selecting a world also lost mouse control. The game worked after disabling the native mod.
 
-Native 0.1.3 uses a narrow terrain scripting bridge: it does not intercept the window procedure, mouse, keyboard, controller, camera input or cursor capture. It does not hook DirectX presentation or initialize the desktop overlay, built-in modules or overlay menus. Minecraft retains its own input and UI. Graphics3D terrain drawing remains in the game renderer, skips empty batches and restores shader color. An unused WebSocket member no longer activates an unavailable WinRT service during script registration. Optional online trust failures still retain untrusted permissions.
+Native 0.1.3 uses a narrow terrain scripting bridge: it does not intercept the window procedure, mouse, keyboard, controller, camera input or cursor capture. It does not hook DirectX presentation or initialize the desktop overlay, built-in modules or overlay menus. Minecraft retains its own input and UI. Graphics3D terrain drawing remains in the game renderer, skips empty batches and restores shader color. An unused WebSocket member no longer activates an unavailable WinRT service during script registration. Optional online trust failures still retain untrusted permissions. The companion receiver also accepts the pinned SDK’s named text-packet types, preserving its checks against player chat and session mismatches.
 
 This rebuild needs in-game confirmation. The installed native mod stays disabled after the regression; re-enable it in **Client Mods…** only for a fresh game launch when ready to try the corrected build. Close Minecraft first: an already loaded DLL cannot be repaired by updating its files. Client package 0.1.3 retains the 0.1.1 companion handshake and settings protocol. Debug symbols and full corresponding native source are included.
 
