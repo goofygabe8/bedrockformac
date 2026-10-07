@@ -21,6 +21,39 @@ PREFIX = ROOT / 'bottle'
 VERSIONS = ROOT / 'version'
 
 
+def games():
+    """Only report Minecraft processes from this launcher's version directory."""
+    listing = execute(['/bin/ps', '-axo', 'pid=,comm='], timeout=5)
+    found = []
+    for line in listing.splitlines():
+        parts = line.strip().split(None, 1)
+        if len(parts) != 2 or not parts[0].isdigit(): continue
+        path = Path(parts[1])
+        if path.name == 'Minecraft.Windows.exe' and path.parent.parent == VERSIONS:
+            found.append(dict(pid=int(parts[0]), version=path.parent.name))
+    return found
+
+
+def require_closed():
+    if games():
+        raise RuntimeError('Close Minecraft before changing versions, accounts, or installing updates.')
+
+
+def close_game():
+    active = games()
+    if not active:
+        emit('result', ok=True, message='Minecraft is already closed.')
+        return
+    if len(active) != 1:
+        raise RuntimeError('More than one Minecraft window is open. Close the extra game window first.')
+    emit('progress', message='Asking Minecraft to close…')
+    env = os.environ.copy()
+    env.update(WINEPREFIX=str(PREFIX), WINEDEBUG='-all')
+    # Without /F, Wine taskkill sends WM_CLOSE so Minecraft can handle its exit.
+    execute([WINE, 'taskkill', '/IM', 'Minecraft.Windows.exe'], env=env, timeout=15)
+    emit('result', ok=True, message='Close requested. Finish any save or confirmation in Minecraft.')
+
+
 def emit(kind, **values):
     print(json.dumps(dict(kind=kind, **values)), flush=True)
 
@@ -53,6 +86,10 @@ def controllers():
 
 
 def update():
+    if games():
+        emit('result', ok=True, version=(ROOT/'.launcher-version').read_text().strip(), deferred=True,
+             message='Minecraft is open. Close it before checking for launcher updates.')
+        return
     import update_client
     before = (ROOT/'.launcher-version').read_text().strip()
     output = io.StringIO()
@@ -66,7 +103,7 @@ def update():
     message = output.getvalue().strip()
     if before == after and 'unavailable' not in message.lower():
         message = 'Your launcher is up to date.'
-    emit('result', ok=True, version=after, restart=before != after,
+    emit('result', ok=True, version=after, restart=before != after, deferred=False,
          message=message or 'Your launcher is up to date.')
 
 
@@ -126,6 +163,7 @@ def bootstrap():
 
 
 def status():
+    from launcher_settings import settings
     installed = sorted([path.name for path in VERSIONS.iterdir() if path.is_dir() and (path/'Minecraft.Windows.exe').is_file() and re.fullmatch(r'\d+(?:\.\d+)+', path.name)], key=sort_key, reverse=True) if VERSIONS.is_dir() else []
     selected = (VERSIONS/'.version').read_text().strip() if (VERSIONS/'.version').is_file() else ''
     if selected not in installed:
@@ -138,7 +176,8 @@ def status():
     if not match: match = re.search(r'Signed in as\s+(.+)', account)
     emit('result', ok=True, installed=installed, selected=selected,
          account=re.sub(r'\s*\(PUID[^)]*\)', '', match.group(1)).strip() if match else '', controllers=controllers(),
-         version=(ROOT/'.launcher-version').read_text().strip())
+         version=(ROOT/'.launcher-version').read_text().strip(), games=games(),
+         high_resolution=settings(PREFIX)['values']['high_resolution'])
 
 
 def login():
@@ -154,16 +193,21 @@ def login():
 
 
 def play(value):
+    require_closed()
     if not re.fullmatch(r'\d+(?:\.\d+)+', value): raise RuntimeError('Select an installed game version.')
     game = VERSIONS/value/'Minecraft.Windows.exe'
     if not game.is_file(): raise RuntimeError('Download this game version first.')
     (VERSIONS/'.version').write_text(value)
     from runtime_setup import ensure_wine_input
-    emit('progress', message='Preparing mouse, keyboard, and controller input…')
+    emit('progress', message='Launching Minecraft…')
     with contextlib.redirect_stdout(io.StringIO()):
         ensure_wine_input(PREFIX, WINE)
+    from launcher_settings import prepare_launch_settings
+    prepare_launch_settings(PREFIX, WINE)
     env = os.environ.copy()
     env.pop('WINEGDK_PREAUTH_DEVICE', None)
+    # Metal 4 in D3DMetal 4.0b2 corrupts the classic server UI with MSAA.
+    # The Metal 3 backend preserves normal UI blending with 4x enabled.
     env.update(WINEPREFIX=str(PREFIX), GRAPHICS_BACKEND='d3dmetal',
                D3DMETAL_RUNTIME_DIR=str(ROOT/'d3dmetal/gptk'), D3DMETAL_UPSCALER_PROFILE='amd',
                D3DM_VENDOR_ID='4098', D3DM_DEVICE_ID='29631', D3DM_DEVICE_DESCRIPTION='AMD Radeon RX 6800 XT',
@@ -171,9 +215,10 @@ def play(value):
     logs = ROOT/'.gui-logs'
     logs.mkdir(exist_ok=True, mode=0o700)
     target = logs/'last-game.log'
-    emit('progress', message='Minecraft is starting. Keep the controller connected.')
+    emit('progress', message='Launching Minecraft…')
     process = subprocess.Popen([str(WINE), str(game)], cwd=game.parent, env=env,
                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors='replace', bufsize=1)
+    emit('game', pid=process.pid, version=value)
     with target.open('w') as output:
         os.chmod(target, 0o600)
         for line in process.stdout:
@@ -218,6 +263,8 @@ def download(value):
 def main():
     os.chdir(ROOT)
     action = sys.argv[1]
+    if action in ('login', 'logout', 'download', 'select'):
+        require_closed()
     if action == 'bootstrap': bootstrap()
     elif action == 'status': status()
     elif action == 'catalog': emit('result', ok=True, releases=sorted(catalogue(), key=sort_key, reverse=True))
@@ -227,6 +274,15 @@ def main():
         execute([XODUS, 'logout'], timeout=30)
         emit('result', ok=True, message='Signed out.')
     elif action == 'play': play(sys.argv[2])
+    elif action == 'close_game': close_game()
+    elif action == 'settings':
+        from launcher_settings import settings
+        emit('result', ok=True, **settings(PREFIX))
+    elif action in ('settings-save', 'high-resolution'):
+        from launcher_settings import save_settings, settings
+        save_settings(json.loads(sys.argv[2]))
+        emit('result', ok=True, message='Settings saved for the next Minecraft launch.',
+             high_resolution=settings(PREFIX)['values']['high_resolution'])
     elif action == 'download': download(sys.argv[2])
     elif action == 'select':
         value = sys.argv[2]

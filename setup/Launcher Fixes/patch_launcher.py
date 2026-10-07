@@ -25,7 +25,7 @@ def main(path):
     text = replace_once(
         text,
         "import subprocess\nimport os\n",
-        "import subprocess\nimport os\nfrom pathlib import Path\nfrom runtime_setup import ensure_wine_input\n",
+        "import subprocess\nimport os\nfrom pathlib import Path\nfrom runtime_setup import ensure_wine_input\nfrom launcher_settings import prepare_launch_settings, settings, save_settings\n",
         "input setup import",
     )
     text = replace_once(
@@ -38,14 +38,17 @@ def main(path):
     text = replace_once(
         text,
         "    ):\n    env = os.environ.copy()\n",
-        "    ):\n    ensure_wine_input(WINEPREFIX_PATH, WINE_COMMAND)\n    env = os.environ.copy()\n",
+        "    ):\n    ensure_wine_input(WINEPREFIX_PATH, WINE_COMMAND)\n    prepare_launch_settings(WINEPREFIX_PATH, WINE_COMMAND)\n    env = os.environ.copy()\n",
         "pre-launch input setup",
     )
     text = replace_once(
         text,
         '        "D3DMETAL_UPSCALER_PROFILE": UPSCALER_PROFILE\n        })\n',
-        '        "D3DMETAL_UPSCALER_PROFILE": UPSCALER_PROFILE,\n        })\n    env.pop("WINEGDK_PREAUTH_DEVICE", None)\n',
-        "original account flow",
+        '        "D3DMETAL_UPSCALER_PROFILE": UPSCALER_PROFILE,\n        })\n'
+        '    env.pop("WINEGDK_PREAUTH_DEVICE", None)\n'
+        '    if GRAPHICS_BACKEND == "d3dmetal":\n'
+        '        env.setdefault("D3DM_MTL4", "0")  # Metal 3 keeps server UI correct with MSAA.\n',
+        "original account flow and graphics compatibility",
     )
     text = replace_once(
         text,
@@ -84,6 +87,24 @@ def main(path):
         '        Setting()\n'
         '    elif main_option == "Graphics Backend":\n',
         "audio output action",
+    )
+    text = replace_once(
+        text,
+        '    HIGH_RES_MODE = check_high_res(DEFAULT_WINEPREFIX_REG)\n',
+        '    HIGH_RES_MODE = settings(DEFAULT_WINEPREFIX)["values"]["high_resolution"]\n',
+        "shared high resolution preference",
+    )
+    text = replace_once(
+        text,
+        '        if HIGH_RES_MODE:\n'
+        '            toggle_high_res(DEFAULT_WINEPREFIX, DEFAULT_WINEPREFIX_REG, DEFAULT_WINES_COMMAND, False)\n'
+        '        elif HIGH_RES_MODE == False:\n'
+        '            toggle_high_res(DEFAULT_WINEPREFIX, DEFAULT_WINEPREFIX_REG, DEFAULT_WINES_COMMAND, True)\n'
+        '        else:\n'
+        '            toggle_high_res(DEFAULT_WINEPREFIX, DEFAULT_WINEPREFIX_REG, DEFAULT_WINES_COMMAND, True)\n',
+        '        save_settings({"high_resolution": not HIGH_RES_MODE})\n'
+        '        print("High Resolution changes apply on the next Minecraft launch.")\n',
+        "high resolution queue",
     )
     text = replace_once(
         text,

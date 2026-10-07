@@ -1,5 +1,7 @@
 import AppKit
 import CoreText
+import CoreGraphics
+import Darwin
 
 
 func pixelFont(_ size: CGFloat) -> NSFont { NSFont(name: "Monocraft", size: size) ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular) }
@@ -65,6 +67,175 @@ final class BlockPopUp: NSPopUpButton {
     }
 }
 
+final class FlippedView: NSView { override var isFlipped: Bool { true } }
+
+final class SettingControl: NSView {
+    let entry: [String: Any]
+    let input: NSControl
+    let readout = NSTextField(labelWithString: "")
+    var key: String { entry["key"] as! String }
+    init(_ entry: [String: Any], value: Any) {
+        self.entry = entry
+        switch entry["kind"] as? String {
+        case "bool": input = NSButton(checkboxWithTitle: "Enabled", target: nil, action: nil)
+        case "choice":
+            let popup = BlockPopUp(frame: .zero, pullsDown: false)
+            for option in entry["options"] as? [[Any]] ?? [] {
+                popup.addItem(withTitle: option[1] as? String ?? "")
+                popup.lastItem?.representedObject = option[0]
+            }
+            input = popup
+        default:
+            input = NSSlider(value: 0, minValue: (entry["minimum"] as? NSNumber)?.doubleValue ?? 0,
+                             maxValue: (entry["maximum"] as? NSNumber)?.doubleValue ?? 1, target: nil, action: nil)
+        }
+        super.init(frame: .zero)
+        input.font = pixelFont(11)
+        let title = NSTextField(labelWithString: entry["title"] as? String ?? "")
+        title.font = pixelFont(12)
+        title.widthAnchor.constraint(equalToConstant: 285).isActive = true
+        input.widthAnchor.constraint(equalToConstant: 235).isActive = true
+        readout.font = pixelFont(11)
+        readout.widthAnchor.constraint(equalToConstant: 65).isActive = true
+        let top = NSStackView(views: [title, input, readout]); top.orientation = .horizontal; top.spacing = 12; top.alignment = .centerY
+        let hint = NSTextField(wrappingLabelWithString: entry["hint"] as? String ?? "")
+        hint.font = pixelFont(10); hint.textColor = .secondaryLabelColor
+        hint.preferredMaxLayoutWidth = 675
+        let recommended = NSTextField(labelWithString: "Recommended: " + display(entry["default"] ?? ""))
+        recommended.font = pixelFont(10); recommended.textColor = rgb(166, 194, 131)
+        let stack = NSStackView(views: [top, hint, recommended])
+        stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 7
+        stack.translatesAutoresizingMaskIntoConstraints = false; addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor), stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 10), stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
+            hint.widthAnchor.constraint(equalTo: stack.widthAnchor)])
+        if let slider = input as? NSSlider { slider.target = self; slider.action = #selector(sliderChanged) }
+        set(value)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    func display(_ value: Any) -> String {
+        if entry["kind"] as? String == "bool" { return (value as? Bool ?? false) ? "On" : "Off" }
+        if entry["kind"] as? String == "choice" {
+            for option in entry["options"] as? [[Any]] ?? [] where equal(value, option[0]) { return option[1] as? String ?? "" }
+            return String(describing: value)
+        }
+        let n = (value as? NSNumber)?.doubleValue ?? 0
+        let scale = (entry["scale"] as? NSNumber)?.doubleValue ?? 1
+        return String(format: "%.0f", n * scale) + (entry["unit"] as? String ?? "")
+    }
+    func equal(_ a: Any, _ b: Any) -> Bool { (a as? NSObject)?.isEqual(b) ?? false }
+    func set(_ value: Any) {
+        if let popup = input as? NSPopUpButton {
+            if let index = popup.itemArray.firstIndex(where: { equal($0.representedObject ?? "", value) }) { popup.selectItem(at: index) }
+            else { popup.addItem(withTitle: "Custom: " + String(describing: value)); popup.lastItem?.representedObject = value; popup.selectItem(at: popup.numberOfItems - 1) }
+        } else if let button = input as? NSButton { button.state = (value as? Bool ?? false) ? .on : .off }
+        else if let slider = input as? NSSlider { slider.doubleValue = (value as? NSNumber)?.doubleValue ?? 0; readout.stringValue = display(slider.doubleValue) }
+    }
+    func value() -> Any {
+        if let popup = input as? NSPopUpButton { return popup.selectedItem?.representedObject ?? entry["default"]! }
+        if let button = input as? NSButton { return button.state == .on }
+        let slider = input as! NSSlider
+        let step = (entry["step"] as? NSNumber)?.doubleValue ?? 1
+        return (slider.doubleValue / step).rounded() * step
+    }
+    @objc func sliderChanged() { readout.stringValue = display(value()) }
+}
+
+final class SettingsEditor: NSObject, NSWindowDelegate {
+    let window: NSWindow
+    let info = NSTextField(wrappingLabelWithString: "Changes apply on the next Minecraft launch.")
+    let presets: [String: [String: Any]]
+    let defaults: [String: Any]
+    let baseline: [String: Any]
+    var controls: [String: SettingControl] = [:]
+    var buttons: [NSButton] = []
+    var saving = false
+    let onSave: ([String: Any]) -> Void
+    init(data: [String: Any], onSave: @escaping ([String: Any]) -> Void) {
+        self.onSave = onSave
+        presets = data["presets"] as? [String: [String: Any]] ?? [:]
+        defaults = data["defaults"] as? [String: Any] ?? [:]
+        baseline = data["values"] as? [String: Any] ?? [:]
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 820, height: 730), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+        super.init()
+        window.title = "Minecraft Settings"; window.isReleasedWhenClosed = false; window.delegate = self
+        window.appearance = NSAppearance(named: .darkAqua); window.contentView = StoneBackground(); window.center()
+        let title = NSTextField(labelWithString: "Make it your Minecraft")
+        title.font = pixelFont(23)
+        let tabs = NSTabView(); tabs.tabViewType = .topTabsBezelBorder
+        let schema = data["schema"] as? [[String: Any]] ?? []
+        for name in ["Display", "Graphics", "Controls", "Sound"] {
+            let scroll = NSScrollView(); scroll.hasVerticalScroller = true; scroll.drawsBackground = false; scroll.borderType = .noBorder
+            let document = FlippedView(); document.translatesAutoresizingMaskIntoConstraints = false
+            let stack = NSStackView(); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 2
+            stack.translatesAutoresizingMaskIntoConstraints = false; document.addSubview(stack); scroll.documentView = document
+            NSLayoutConstraint.activate([
+                document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
+                stack.leadingAnchor.constraint(equalTo: document.leadingAnchor, constant: 15),
+                stack.trailingAnchor.constraint(equalTo: document.trailingAnchor, constant: -15),
+                stack.topAnchor.constraint(equalTo: document.topAnchor, constant: 8),
+                stack.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -12)])
+            for entry in schema where entry["section"] as? String == name {
+                let key = entry["key"] as! String
+                let control = SettingControl(entry, value: baseline[key] ?? entry["default"]!)
+                controls[key] = control; stack.addArrangedSubview(control)
+                control.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+            }
+            let tab = NSTabViewItem(identifier: name); tab.label = name; tab.view = scroll; tabs.addTabViewItem(tab)
+        }
+        tabs.heightAnchor.constraint(equalToConstant: 400).isActive = true
+        let presetTitle = NSTextField(labelWithString: "Graphics presets:"); presetTitle.font = pixelFont(11)
+        let presetRow = NSStackView(views: [presetTitle, makeButton("Balanced", #selector(presetAction)), makeButton("Performance", #selector(presetAction)), makeButton("Quality", #selector(presetAction))])
+        presetRow.orientation = .horizontal; presetRow.spacing = 10
+        info.font = pixelFont(10); info.textColor = .secondaryLabelColor
+        info.preferredMaxLayoutWidth = 750
+        if data["pending"] as? Bool == true { info.stringValue = "Saved changes are waiting for the next Minecraft launch." }
+        let footer = NSStackView(views: [makeButton("Restore Defaults", #selector(defaultsAction)), makeButton("Cancel", #selector(cancelAction)), makeButton("Save Settings", #selector(saveAction))]); footer.orientation = .horizontal; footer.spacing = 12
+        let body = NSStackView(views: [title, presetRow, tabs, info, footer])
+        body.orientation = .vertical; body.alignment = .leading; body.spacing = 16
+        body.translatesAutoresizingMaskIntoConstraints = false; window.contentView!.addSubview(body)
+        NSLayoutConstraint.activate([
+            body.leadingAnchor.constraint(equalTo: window.contentView!.leadingAnchor, constant: 24),
+            body.trailingAnchor.constraint(equalTo: window.contentView!.trailingAnchor, constant: -24),
+            body.topAnchor.constraint(equalTo: window.contentView!.topAnchor, constant: 24),
+            tabs.widthAnchor.constraint(equalTo: body.widthAnchor), info.widthAnchor.constraint(equalTo: body.widthAnchor)])
+    }
+    func makeButton(_ title: String, _ action: Selector) -> NSButton {
+        let button = BlockButton(title: title, target: self, action: action); button.isBordered = false
+        buttons.append(button); return button
+    }
+    @objc func presetAction(_ sender: NSButton) {
+        for (key, value) in presets[sender.title] ?? [:] { controls[key]?.set(value) }
+        info.stringValue = sender.title + " graphics selected. Click Save Settings to keep them."
+    }
+    @objc func defaultsAction() {
+        for (key, value) in defaults { controls[key]?.set(value) }
+        info.stringValue = "Recommended defaults selected. Click Save Settings to keep them."
+    }
+    @objc func cancelAction() { window.close() }
+    @objc func saveAction() {
+        var changes: [String: Any] = [:]
+        for (key, control) in controls {
+            let value = control.value()
+            if !control.equal(value, baseline[key] ?? "") { changes[key] = value }
+        }
+        if changes.isEmpty { window.close(); return }
+        setSaving(true); onSave(changes)
+    }
+    func setSaving(_ value: Bool) {
+        saving = value
+        for button in buttons { button.isEnabled = !value }
+        for control in controls.values { control.input.isEnabled = !value }
+        if value { info.stringValue = "Saving settings…" }
+    }
+    func finish(_ success: Bool, message: String) {
+        setSaving(false)
+        if success { window.close() } else { info.stringValue = message; info.textColor = .systemOrange }
+    }
+    func windowShouldClose(_ sender: NSWindow) -> Bool { !saving }
+}
+
 final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let root: URL
     var window: NSWindow!
@@ -78,9 +249,20 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let signIn = BlockButton(title: "Sign In", target: nil, action: nil)
     let play = BlockButton(title: "Play Minecraft", target: nil, action: nil)
     let download = BlockButton(title: "Download", target: nil, action: nil)
+    let highResolution = NSButton(checkboxWithTitle: "High Resolution / Retina", target: nil, action: nil)
+    var closeGameButton: NSButton!
+    var showGameButton: NSButton!
+    var updateButton: NSButton!
+    var settingsEditor: SettingsEditor?
     var buttons: [NSButton] = []
     var busy = false
     var runningGame = false
+    var playTaskActive = false
+    var savedHighResolution = true
+    var updatesDeferred = false
+    var gameLaunching = false
+    var gamePID: pid_t?
+    var gameTimer: Timer?
     var installedValues: [String] = []
     var authenticated = false
     var startup = true
@@ -125,9 +307,10 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
         CTFontManagerRegisterFontsForURL(root.appendingPathComponent("Monocraft.ttf") as CFURL, .process, nil)
         NSApp.applicationIconImage = NSImage(contentsOf: root.appendingPathComponent("AppIcon.icns"))
         NSApp.setActivationPolicy(.regular)
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 840, height: 700), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 840, height: 760), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = "Minecraft Bedrock"; window.delegate = self
         window.isReleasedWhenClosed = false
+        window.contentMinSize = NSSize(width: 840, height: 620)
         window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = StoneBackground()
         window.center()
@@ -157,17 +340,32 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let installedTitle = label("Installed", size: 12); let downloadTitle = label("Download", size: 12)
         installedTitle.widthAnchor.constraint(equalToConstant: 100).isActive = true
         downloadTitle.widthAnchor.constraint(equalToConstant: 100).isActive = true
-        let game = section("PLAY", [row([installedTitle, installed, play]), row([downloadTitle, releases, download])])
+        highResolution.font = pixelFont(11); highResolution.target = self; highResolution.action = #selector(highResolutionAction)
+        closeGameButton = button("Close Game", #selector(closeGameAction))
+        showGameButton = button("Show Game", #selector(showGameAction))
+        updateButton = button("Check for Updates", #selector(updateAction))
+        let game = section("PLAY", [row([installedTitle, installed, play]), row([downloadTitle, releases, download]),
+                                    row([highResolution, button("Settings…", #selector(settingsAction))]),
+                                    row([showGameButton, closeGameButton, button("Open Game Logs", #selector(logsAction))])])
         let devices = section("CONTROLLER & AUDIO", [controller, row([button("Refresh Controllers", #selector(refreshAction)), button("Audio Output…", #selector(audioAction))])])
-        let updates = section("UPDATES", [row([updateLabel, button("Check for Updates", #selector(updateAction)), button("Open Releases", #selector(releasesAction))])])
+        let updates = section("UPDATES", [row([updateLabel, updateButton, button("Open Releases", #selector(releasesAction))])])
         let stack = NSStackView(views: [title, subtitle, row([account, signIn]), game, devices, updates, row([spinner, status])])
-        stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 18
+        stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 12
         stack.translatesAutoresizingMaskIntoConstraints = false
-        window.contentView!.addSubview(stack)
+        let scroll = NSScrollView(); scroll.hasVerticalScroller = true; scroll.drawsBackground = false
+        scroll.translatesAutoresizingMaskIntoConstraints = false; window.contentView!.addSubview(scroll)
+        let document = FlippedView(); document.translatesAutoresizingMaskIntoConstraints = false
+        document.addSubview(stack); scroll.documentView = document
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: window.contentView!.leadingAnchor, constant: 28),
-            stack.trailingAnchor.constraint(equalTo: window.contentView!.trailingAnchor, constant: -28),
-            stack.topAnchor.constraint(equalTo: window.contentView!.topAnchor, constant: 28),
+            scroll.leadingAnchor.constraint(equalTo: window.contentView!.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: window.contentView!.trailingAnchor),
+            scroll.topAnchor.constraint(equalTo: window.contentView!.topAnchor),
+            scroll.bottomAnchor.constraint(equalTo: window.contentView!.bottomAnchor),
+            document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
+            stack.leadingAnchor.constraint(equalTo: document.leadingAnchor, constant: 28),
+            stack.trailingAnchor.constraint(equalTo: document.trailingAnchor, constant: -28),
+            stack.topAnchor.constraint(equalTo: document.topAnchor, constant: 28),
+            stack.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -28),
             game.widthAnchor.constraint(equalTo: stack.widthAnchor), devices.widthAnchor.constraint(equalTo: stack.widthAnchor), updates.widthAnchor.constraint(equalTo: stack.widthAnchor),
             status.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -32)])
         let menu = NSMenu()
@@ -183,16 +381,26 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func setBusy(_ value: Bool) {
         busy = value
         for button in buttons { button.isEnabled = !value }
-        installed.isEnabled = !value && !installedValues.isEmpty
-        releases.isEnabled = !value && releases.numberOfItems > 0
-        play.isEnabled = !value && !installedValues.isEmpty
-        download.isEnabled = !value && authenticated && releases.numberOfItems > 0
-        if value { spinner.startAnimation(nil) } else { spinner.stopAnimation(nil) }
+        let gameOpen = runningGame || gameLaunching
+        installed.isEnabled = !value && !gameOpen && !installedValues.isEmpty
+        releases.isEnabled = !value && !gameOpen && releases.numberOfItems > 0
+        play.isEnabled = !value && !gameOpen && !installedValues.isEmpty
+        download.isEnabled = !value && !gameOpen && authenticated && releases.numberOfItems > 0
+        signIn.isEnabled = !value && !gameOpen
+        updateButton.isEnabled = !value && !gameOpen
+        closeGameButton.isEnabled = !value && gamePID != nil
+        showGameButton.isEnabled = !value && gamePID != nil
+        highResolution.isEnabled = !value
+        play.title = gameLaunching ? "Launching…" : (runningGame ? "Minecraft Is Open" : "Play Minecraft")
+        play.invalidateIntrinsicContentSize()
+        if value || gameLaunching { spinner.startAnimation(nil) } else { spinner.stopAnimation(nil) }
     }
     func run(_ action: String, _ arguments: [String] = []) {
         if busy { return }
-        currentAction = action; openedSignIn = false; setBusy(true)
-        if action == "play" { runningGame = true }
+        if action == "play" && (runningGame || gameLaunching) { return }
+        currentAction = action; openedSignIn = false
+        if action == "play" { gameLaunching = true; playTaskActive = true; status.stringValue = "Launching Minecraft…" }
+        setBusy(true)
         let executable = python
         DispatchQueue.global(qos: .userInitiated).async {
             let process = Process(); process.executableURL = URL(fileURLWithPath: executable)
@@ -233,15 +441,21 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     func receive(_ data: [String: Any], action: String) {
         if let message = data["message"] as? String, !message.isEmpty {
-            status.stringValue = message
+            if action != "play" || !busy || currentAction == "play" { status.stringValue = message }
             if ["login", "play"].contains(action) && message.contains("microsoft.com/link") && !openedSignIn {
                 openedSignIn = true; NSWorkspace.shared.open(URL(string: "https://www.microsoft.com/link")!)
             }
         }
+        if data["kind"] as? String == "game", let pid = data["pid"] as? Int {
+            trackGame(pid_t(pid)); currentAction = ""; setBusy(false); return
+        }
         if data["kind"] as? String != "result" { return }
         let success = data["ok"] as? Bool ?? false
         status.textColor = success ? .secondaryLabelColor : .systemOrange
-        if let version = data["version"] as? String { updateLabel.stringValue = "v" + version + " / Checked on startup" }
+        if let deferred = data["deferred"] as? Bool { updatesDeferred = deferred }
+        if let version = data["version"] as? String { updateLabel.stringValue = "v" + version + (updatesDeferred ? " / Update after closing game" : " / Checked on startup") }
+        if let high = data["high_resolution"] as? Bool { savedHighResolution = high; highResolution.state = high ? .on : .off }
+        if action == "high-resolution" && !success { highResolution.state = savedHighResolution ? .on : .off }
         if action == "status", success {
             authenticated = !(data["account"] as? String ?? "").isEmpty
             account.stringValue = authenticated ? "Signed in as " + (data["account"] as? String ?? "") : "Sign in with your Microsoft account to download Minecraft."
@@ -254,21 +468,39 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let pads = data["controllers"] as? [String] ?? []
             controller.stringValue = pads.isEmpty ? "No controller detected. Connect or pair your controller before Play." : "Connected: " + pads.joined(separator: ", ")
             controller.textColor = pads.isEmpty ? .secondaryLabelColor : .systemGreen
-            play.isEnabled = !versions.isEmpty
+            if let active = (data["games"] as? [[String: Any]])?.first, let pid = active["pid"] as? Int {
+                if gamePID != pid_t(pid) { trackGame(pid_t(pid)) }
+            }
         }
         if let values = data["releases"] as? [String] {
             releases.removeAllItems(); releases.addItems(withTitles: values)
             if !values.isEmpty { releases.selectItem(at: 0) }
         }
-        if action == "play" { runningGame = false }
-        setBusy(false)
+        if action == "settings", success {
+            settingsEditor = SettingsEditor(data: data) { values in
+                guard let json = try? JSONSerialization.data(withJSONObject: values), let text = String(data: json, encoding: .utf8) else { return }
+                if self.busy { self.settingsEditor?.finish(false, message: "Wait for the current launcher action, then save again."); return }
+                self.run("settings-save", [text])
+            }
+            settingsEditor?.window.makeKeyAndOrderFront(nil)
+        }
+        if action == "settings-save" {
+            settingsEditor?.finish(success, message: data["message"] as? String ?? "Could not save settings.")
+        }
+        if action == "play" {
+            gameTimer?.invalidate(); gameTimer = nil; gamePID = nil
+            runningGame = false; gameLaunching = false; playTaskActive = false
+        }
+        // The game action stays alive in the background while other actions run.
+        if action == currentAction || !busy { currentAction = ""; setBusy(false) }
+        else { setBusy(busy) }
         if data["restart"] as? Bool == true {
             status.stringValue = "Update installed. Reopening the launcher…"
             let process = Process(); process.executableURL = root.appendingPathComponent("launcher_gui")
             process.arguments = [root.path]
             try? process.run(); NSApp.terminate(nil); return
         }
-        if action == "catalog" && success { status.stringValue = authenticated && !installedValues.isEmpty ? "Ready to play." : "Sign in and download Minecraft to get started." }
+        if action == "catalog" && success && !runningGame && !gameLaunching { status.stringValue = authenticated && !installedValues.isEmpty ? "Ready to play." : "Sign in and download Minecraft to get started." }
         if action == "bootstrap" && success { run("status"); return }
         if action == "status" && startup { startup = false; run("catalog"); return }
         if ["login", "logout", "download"].contains(action) && success { run("status") }
@@ -280,15 +512,59 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc func refreshAction() { run("status") }
     @objc func audioAction() { run("audio") }
     @objc func updateAction() { run("update") }
+    @objc func settingsAction() {
+        if let editor = settingsEditor, editor.window.isVisible { editor.window.makeKeyAndOrderFront(nil); return }
+        run("settings")
+    }
+    @objc func highResolutionAction() { run("high-resolution", ["{\"high_resolution\":" + (highResolution.state == .on ? "true" : "false") + "}"]) }
+    @objc func closeGameAction() { run("close_game") }
+    @objc func showGameAction() {
+        if let pid = gamePID, let app = NSRunningApplication(processIdentifier: pid) { app.activate(options: [.activateIgnoringOtherApps]) }
+        else { status.stringValue = "Switch to the Minecraft window using Command-Tab." }
+    }
+    @objc func logsAction() {
+        let path = root.appendingPathComponent(".gui-logs")
+        try? FileManager.default.createDirectory(at: path, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(path)
+    }
+    func trackGame(_ pid: pid_t) {
+        gamePID = pid; gameLaunching = true; runningGame = false
+        status.stringValue = "Launching Minecraft…"
+        gameTimer?.invalidate()
+        gameTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.checkGameWindow() }
+        checkGameWindow()
+    }
+    func checkGameWindow() {
+        guard let pid = gamePID else { return }
+        if kill(pid, 0) != 0 && errno == ESRCH {
+            if playTaskActive { return }
+            gameTimer?.invalidate(); gameTimer = nil; gamePID = nil; gameLaunching = false; runningGame = false
+            if !busy { status.stringValue = "Minecraft closed. Ready to play again." }
+            setBusy(busy); return
+        }
+        if !gameLaunching { return }
+        let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        let visible = windows.contains { item in
+            guard (item[kCGWindowOwnerPID as String] as? Int) == Int(pid),
+                  let bounds = item[kCGWindowBounds as String] as? [String: Any],
+                  let width = bounds["Width"] as? NSNumber, let height = bounds["Height"] as? NSNumber else { return false }
+            return width.doubleValue > 200 && height.doubleValue > 150
+        }
+        if visible {
+            gameLaunching = false; runningGame = true
+            if !busy { status.stringValue = "Minecraft is open. Launcher settings apply on the next game launch." }
+            setBusy(busy)
+        }
+    }
     @objc func releasesAction() { NSWorkspace.shared.open(URL(string: "https://github.com/goofygabe8/bedrockformac/releases/latest")!) }
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        if busy { sender.orderOut(nil); return false }
+        if busy || gameLaunching || runningGame { sender.orderOut(nil); return false }
         return true
     }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         window.makeKeyAndOrderFront(nil); return true
     }
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { !busy }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { !busy && !gameLaunching && !runningGame }
 }
 let root = CommandLine.arguments.count > 1 ? URL(fileURLWithPath: CommandLine.arguments[1]) : URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
 let delegate = Launcher(root: root)
