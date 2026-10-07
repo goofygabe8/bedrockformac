@@ -38,7 +38,7 @@ jobs:
           $env:PATH = "C:\msys64\mingw64\bin;" + $env:PATH
           $env:CC = 'cl.exe'
           $env:CXX = 'cl.exe'
-          cmake -S native-source -B native-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl.exe -DCMAKE_CXX_COMPILER=cl.exe
+          cmake -S native-source -B native-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl.exe -DCMAKE_CXX_COMPILER=cl.exe -DCMAKE_CXX_FLAGS_RELEASE="/O2 /DNDEBUG /Zi" -DCMAKE_SHARED_LINKER_FLAGS_RELEASE="/DEBUG"
           if ($LASTEXITCODE -ne 0) { throw 'Native configure failed' }
           cmake --build native-build --parallel 2
           if ($LASTEXITCODE -ne 0) { throw 'Native compilation failed' }

@@ -60,7 +60,9 @@
   "patch_source_sha256": {
     "src/client/script/globals/GameScriptingObject.cpp": "097b2e51a2166bc0b42461b5ccd312e91538134b59c1d4a9b94ed1b635ae10fb",
     "src/client/script/globals/GameScriptingObject.h": "93d020a1ef87ca51851d90ba5a772dfc0eb55d406fada5f6285452e34ae8b08c",
-    "src/client/script/libraries/Filesystem.cpp": "43126bebbcb9847ff9fffffada4c091221012aa8a678348df9d139d80077cc29"
+    "src/client/script/libraries/Filesystem.cpp": "43126bebbcb9847ff9fffffada4c091221012aa8a678348df9d139d80077cc29",
+    "src/client/script/JsPlugin.cpp": "bde99c52f562d2bd68c292f7848b7dcfa7d4c019bf70e76d19296a3cec3f6e1e",
+    "src/client/script/PluginManager.cpp": "15fb30c28978fa3971d617a9df0ed2e06c7c0ebbcc432aeb9c7d98f4b5fd3e82"
   },
   "api": {
     "method": "dimension.getSurface(x,z)",
@@ -89,5 +91,6 @@
     "status": "success",
     "url": "https://github.com/goofygabe8/bedrockformac/actions/runs/37683878487",
     "gameplay_validation": false
-  }
+  },
+  "startup_compatibility": "Optional online plugin trust failures retain untrusted permissions instead of terminating Minecraft. Per-plugin WinRT/C++ startup errors are logged and skip that plugin."
 }

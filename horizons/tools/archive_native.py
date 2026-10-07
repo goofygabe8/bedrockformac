@@ -12,6 +12,8 @@ dll = build / "Latite.dll"
 if not dll.is_file():
     raise SystemExit("Expected Release native DLL is missing")
 shutil.copy2(dll, output / "Latite.dll")
+for pdb in build.glob("*.pdb"):
+    shutil.copy2(pdb, output / pdb.name)
 shutil.copy2(source / "LICENSE", output / "Latite-GPL-3.0.txt")
 with zipfile.ZipFile(output / "Latite-Horizons-Corresponding-Source.zip", "w", zipfile.ZIP_DEFLATED) as archive:
     for path in sorted(source.rglob("*")):
