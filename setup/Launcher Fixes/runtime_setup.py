@@ -212,3 +212,5 @@ def ensure_wine_input(prefix, wine_command):
         _import_registry(prefix, wine_command, header + "\n\n" + "\n\n".join(sections))
     from text_input_fix import ensure_text_input
     ensure_text_input(Path(__file__).resolve().parent, prefix)
+    from realm_auth_fix import ensure_auth_path
+    ensure_auth_path(Path(__file__).resolve().parent, prefix)

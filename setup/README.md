@@ -35,6 +35,12 @@ The launcher prepares a desktop fallback for Windows’ on-screen input pane bef
 
 This applies to the pinned WineForge runtime only. Original DLLs are backed up locally, and unrecognized runtime binaries are left untouched. The patch changes three CoreInputView3 methods and retains the original stack/unwind metadata. The reported search and sign behavior still needs confirmation after a game restart. See [Microsoft’s API contract](https://learn.microsoft.com/en-us/uwp/api/windows.ui.viewmanagement.core.coreinputview.tryshow) and the [Wine implementation](https://github.com/wine-mirror/wine/blob/master/dlls/windows.ui.core.textinput/main.c).
 
+## Realm request signing compatibility
+
+Version 0.4.3 normalizes an empty HTTP request path to `/` in the bundled WineForge Xbox signer. A Realm join log showed `get_path_and_query` failing with `E_FAIL` immediately after token requests for the bare Xbox service address `https://avty.xboxlive.com`. The original signer rejected a successful URL parse if both path and query were empty. The patch continues through the existing signing code using the HTTP root path.
+
+This is a targeted compatibility fix, not a replacement authentication runtime. It applies before game startup, verifies the exact runtime fingerprint, saves local DLL backups, and retains the existing stack/unwind records. Realms joining after the patch still needs gameplay confirmation. See [HTTP request-target rules](https://www.rfc-editor.org/rfc/rfc9112.html#section-3.2.1). The mouse, controller, graphics, and text-entry fixes are also included.
+
 ## Updates and existing installations
 
 The app checks this repository's latest public release every time it starts, deferring installation while Minecraft is open. After an update, it opens the updated launcher automatically and closes the old window once the new window is ready. The displayed version identifies the running launcher. An older window with newer files already on disk is also reopened when it checks for updates. Downloads and files are verified against SHA-256 checksums. Offline checks allow the installed launcher to open. Game data is outside the update payload, and previous launcher code is kept for rollback.
@@ -45,7 +51,7 @@ The smaller **bedrock-mac-update.zip** asset is for the automatic updater. The *
 
 ## Publishing another fix
 
-After changing your local launcher, open **Build Launcher Update.command**, enter a new version (for example `0.4.3`), and upload the generated **bedrock-mac-update.zip** to a public GitHub Release tagged `v0.4.3`. Keep the asset name exactly `bedrock-mac-update.zip`. Changed Swift window code is compiled when building. Recipients receive your update on their next app launch.
+After changing your local launcher, open **Build Launcher Update.command**, enter a new version (for example `0.4.4`), and upload the generated **bedrock-mac-update.zip** to a public GitHub Release tagged `v0.4.4`. Keep the asset name exactly `bedrock-mac-update.zip`. Changed Swift window code is compiled when building. Recipients receive your update on their next app launch.
 
 The update builder packages code and GUI assets with patches against the original launcher source saved locally. It excludes accounts, worlds, Wine prefixes, game files, and upstream runtime files.
 

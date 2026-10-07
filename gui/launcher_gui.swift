@@ -4,7 +4,7 @@ import CoreGraphics
 import Darwin
 
 // The update builder sets this before compiling each release.
-let launcherVersion = "0.4.2"
+let launcherVersion = "0.4.3"
 
 func pixelFont(_ size: CGFloat) -> NSFont { NSFont(name: "Monocraft", size: size) ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular) }
 func rgb(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> NSColor { NSColor(calibratedRed: r/255, green: g/255, blue: b/255, alpha: 1) }
