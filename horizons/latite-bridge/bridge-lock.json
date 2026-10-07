@@ -1,0 +1,88 @@
+{
+  "schema": 1,
+  "upstream": {
+    "repository": "https://github.com/LatiteClient/Latite",
+    "commit": "9f7463515dd298a496da918285936d78c7416aad",
+    "license": "GPL-3.0",
+    "declared_supported_game_versions": [
+      "1.26.5x"
+    ]
+  },
+  "game": {
+    "version": "1.26.52.3",
+    "architecture": "x86_64-windows",
+    "sha256": "4a92bfa3ce2428b40ee517b7c1125d9f6f79274382de03846351992663b2e2e4"
+  },
+  "source_review": {
+    "terrain_api": "dimension.getBlock exists but requires Operator",
+    "command_api": "game.executeCommand has no client Operator gate; server permission checks apply",
+    "renderer_api": "graphics3D.drawQuad and finish call in-engine Tessellator/MeshHelpers",
+    "world_identity": "world.getName plus game.getServer/getPort; no stable Realm ID API",
+    "chunk_readiness": "not exposed by pinned SDK"
+  },
+  "static_signatures": {
+    "LevelRenderer_renderLevel": {
+      "anchor_rva": "0x4be899",
+      "matches": 1
+    },
+    "Tessellator_vertex": {
+      "rva": "0x59ca7a0",
+      "matches": 1
+    },
+    "Tessellator_begin": {
+      "rva": "0x59ca2e0",
+      "matches": 1
+    },
+    "Tessellator_color": {
+      "rva": "0x59ca610",
+      "matches": 1
+    },
+    "MeshHelpers_renderMeshImmediately": {
+      "rva": "0x467ee50",
+      "matches": 1
+    },
+    "RenderMaterialGroup__common": {
+      "anchor_rva": "0x442c7df",
+      "matches": 1
+    },
+    "MultiPlayerLevel__subTick": {
+      "rva": "0x12f4b70",
+      "matches": 1
+    }
+  },
+  "runtime_validation": "not performed",
+  "released_dll": {
+    "tag": "v2.9.1",
+    "published_at": "2026-08-15T21:51:47Z",
+    "declared_game_support": "26.44",
+    "supports_target_confirmed": false
+  },
+  "patch_source_sha256": {
+    "src/client/script/globals/GameScriptingObject.cpp": "097b2e51a2166bc0b42461b5ccd312e91538134b59c1d4a9b94ed1b635ae10fb",
+    "src/client/script/globals/GameScriptingObject.h": "93d020a1ef87ca51851d90ba5a772dfc0eb55d406fada5f6285452e34ae8b08c",
+    "src/client/script/libraries/Filesystem.cpp": "43126bebbcb9847ff9fffffada4c091221012aa8a678348df9d139d80077cc29"
+  },
+  "api": {
+    "method": "dimension.getSurface(x,z)",
+    "known": false,
+    "observation_only": true,
+    "max_radius_blocks": 128,
+    "max_scans_per_50_ms": 4,
+    "max_block_reads_per_scan": 384,
+    "result": {
+      "known": false,
+      "reason": "chunk-completeness-unverified",
+      "readiness": "unverified",
+      "observed": {
+        "height": "top-face y+1",
+        "block": "namespaced id",
+        "water": "boolean",
+        "color": "RGB8 estimated block-name palette",
+        "colorEstimated": true,
+        "minY": "canonical dimension minimum",
+        "maxY": "canonical dimension maximum"
+      }
+    }
+  },
+  "filesystem": "Relative plugin paths always resolve to the plugin directory, preventing CWD cache collisions; absolute paths retain upstream behavior."
+}

@@ -1,0 +1,17 @@
+cmake_minimum_required(VERSION 3.15)
+project(BedrockHorizonsCore VERSION 0.1.0 LANGUAGES CXX)
+
+add_library(bedrock_horizons STATIC src/horizons.cpp)
+target_include_directories(bedrock_horizons PUBLIC include)
+target_compile_features(bedrock_horizons PUBLIC cxx_std_17)
+set_target_properties(bedrock_horizons PROPERTIES CXX_EXTENSIONS OFF)
+
+add_executable(horizons-tool tools/horizons_tool.cpp)
+target_link_libraries(horizons-tool PRIVATE bedrock_horizons)
+if(MSVC)
+  target_compile_options(bedrock_horizons PRIVATE /W4 /permissive-)
+  target_compile_options(horizons-tool PRIVATE /W4 /permissive-)
+else()
+  target_compile_options(bedrock_horizons PRIVATE -Wall -Wextra -Wpedantic)
+  target_compile_options(horizons-tool PRIVATE -Wall -Wextra -Wpedantic)
+endif()

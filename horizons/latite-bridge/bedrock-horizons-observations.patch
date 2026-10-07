@@ -1,0 +1,1785 @@
+--- a/src/client/script/globals/GameScriptingObject.cpp
++++ b/src/client/script/globals/GameScriptingObject.cpp
+@@ -1,401 +1,507 @@
+-#include "pch.h"
+-#include "GameScriptingObject.h"
+-#include "../JsScript.h"
+-#include "client/script/class/classes/JsVec2.h"
+-#include "mc/common/client/game/ClientInstance.h"
+-#include "mc/common/client/game/MinecraftGame.h"
+-#include "mc/common/client/renderer/game/LevelRenderer.h"
+-#include "mc/common/client/player/LocalPlayer.h"
+-#include "mc/common/world/Minecraft.h"
+-#include "mc/common/world/level/BlockSource.h"
+-
+-#include "client/Latite.h"
+-#include <client/input/Keyboard.h>
+-#include "client/script/PluginManager.h"
+-#include "util/Logger.h"
+-#include "mc/common/network/packet/TextPacket.h"
+-#include "../class/classes/game/JsEntityClass.h"
+-#include "../class/classes/game/JsPlayerClass.h"
+-#include "../class/classes/game/JsLocalPlayerClass.h"
+-#include <mc/common/network/packet/CommandRequestPacket.h>
+-#include <client/script/class/classes/game/JsBlock.h>
+-#include <client/script/class/classes/JsVec3.h>
+-#include "mc/common/network/MinecraftPackets.h"
+-
+-void GameScriptingObject::initialize(JsContextRef ctx, JsValueRef parentObj) {
+-    this->createWorldObject();
+-    Chakra::SetPropertyString(object, L"version", util::StrToWStr(Latite::get().gameVersion));
+-    Chakra::DefineFunc(object, getLocalPlayerCallback, L"getLocalPlayer");
+-    Chakra::DefineFunc(object, getMousePosCallback, L"getMousePos");
+-    Chakra::DefineFunc(object, getScreenSizeCallback, L"getScreenSize");
+-    Chakra::DefineFunc(object, isInUICallback, L"isInUI");
+-    Chakra::DefineFunc(object, playSoundUI, L"playSoundUI");
+-    Chakra::DefineFunc(object, sendChatCallback, L"sendChatMessage");
+-    Chakra::DefineFunc(object, executeCommand, L"executeCommand");
+-    Chakra::DefineFunc(object, getWorldCallback, L"getWorld", this);
+-    Chakra::DefineFunc(object, getDimensionCallback, L"getDimension", this);
+-    Chakra::DefineFunc(object, getConnectedServerCallback, L"getServer");
+-    Chakra::DefineFunc(object, getPortCallback, L"getPort");
+-    Chakra::DefineFunc(object, getConnectedFeaturedServerCallback, L"getFeaturedServer");
+-    Chakra::DefineFunc(object, getInputBinding, L"getInputBinding");
+-    Chakra::DefineFunc(object, getFOV, L"getFOV");
+-    Chakra::DefineFunc(object, getCameraPosition, L"getCameraPosition");
+-    Chakra::DefineFunc(object, captureCursor, L"captureCursor");
+-    Chakra::DefineFunc(object, releaseCursor, L"releaseCursor");
+-    Chakra::DefineFunc(object, isKeyDown, L"isKeyDown");
+-}
+-
+-void GameScriptingObject::createWorldObject() {
+-    JS::JsCreateObject(&worldObj);
+-    // JS::JsAddRef(worldObj, nullptr); // never forget to add a reference to an object that isn't set !!
+-
+-    JS::JsCreateObject(&dimensionObj);
+-    // JS::JsAddRef(dimensionObj, nullptr);
+-
+-    Chakra::DefineFunc(worldObj, worldExists, L"exists", this);
+-    Chakra::DefineFunc(worldObj, worldGetEntList, L"getEntities", this);
+-    Chakra::DefineFunc(worldObj, worldGetEntCount, L"getEntityCount", this);
+-    Chakra::DefineFunc(worldObj, worldGetPlayers, L"getPlayers", this);
+-    Chakra::DefineFunc(worldObj, worldGetName, L"getName", this);
+-    Chakra::DefineFunc(dimensionObj, worldExists, L"exists", this);
+-    Chakra::DefineFunc(dimensionObj, dimensionGetBlock, L"getBlock", this);
+-    Chakra::DefineFunc(dimensionObj, dimensionGetName, L"getName", this);
+-    Chakra::SetProperty(Chakra::GetGlobalObject(), L"world", worldObj);
+-    Chakra::SetProperty(Chakra::GetGlobalObject(), L"dimension", dimensionObj);
+-}
+-
+-JsValueRef GameScriptingObject::worldExists(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                            unsigned short argCount, void* callbackState) {
+-    return SDK::ClientInstance::get()->minecraft->getLevel() ? Chakra::GetTrue() : Chakra::GetFalse();
+-}
+-
+-JsValueRef GameScriptingObject::worldGetName(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                             unsigned short argCount, void* callbackState) {
+-    if (!SDK::ClientInstance::get()->getLocalPlayer()) {
+-        Chakra::ThrowError(L"World is not allowed to be used here");
+-        return Chakra::GetUndefined();
+-    }
+-
+-    return Chakra::MakeString(util::StrToWStr(SDK::ClientInstance::get()->minecraft->getLevel()->getLevelName()));
+-}
+-
+-JsValueRef GameScriptingObject::worldGetPlayers(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                                unsigned short argCount, void* callbackState) {
+-    if (!SDK::ClientInstance::get()->getLocalPlayer()) {
+-        Chakra::ThrowError(L"World is not allowed to be used here");
+-        return Chakra::GetUndefined();
+-    }
+-
+-    JsValueRef array;
+-    auto arr = SDK::ClientInstance::get()->minecraft->getLevel()->getPlayerList();
+-    auto size = arr->size();
+-    JS::JsCreateArray(static_cast<unsigned>(size), &array);
+-
+-    int i = 0;
+-    for (auto& pair : *arr) {
+-        JS::JsSetIndexedProperty(array, Chakra::MakeInt(i), Chakra::MakeString(util::StrToWStr(pair.second.name)));
+-        ++i;
+-    }
+-    return array;
+-}
+-
+-JsValueRef GameScriptingObject::worldGetEntList(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                                unsigned short argCount, void* callbackState) {
+-    if (!SDK::ClientInstance::get()->getLocalPlayer()) {
+-        Chakra::ThrowError(L"World is not available");
+-        return Chakra::GetUndefined();
+-    }
+-
+-    JsPlugin* scr = JsScript::getThis()->getPlugin();
+-
+-    if (!Latite::getPluginManager().hasPermission(scr, PluginManager::Permission::Operator)) {
+-        Chakra::ThrowError(L"No permission to use getEntityList here");
+-        return JS_INVALID_REFERENCE;
+-    }
+-
+-    auto lvl = SDK::ClientInstance::get()->minecraft->getLevel();
+-    JsValueRef array;
+-    auto entList = lvl->getRuntimeActorList();
+-    unsigned sz = static_cast<unsigned>(entList.size());
+-    JS::JsCreateArray(sz, &array);
+-    unsigned idx = 0;
+-    for (auto& ent : entList) {
+-        JsValueRef db;
+-        JS::JsDoubleToNumber(static_cast<double>(idx), &db);
+-        JsScript* script = JsScript::getThis();
+-
+-        auto entc = script->getClass<JsEntityClass>();
+-        auto plrc = script->getClass<JsPlayerClass>();
+-        auto lplrc = script->getClass<JsLocalPlayerClass>();
+-
+-        if (ent->getRuntimeID() == 1) {
+-            JS::JsSetIndexedProperty(
+-                array, db,
+-                lplrc->construct(new JsEntity(ent->getRuntimeID(), JsEntity::AccessLevel::LocalPlayer), true));
+-        } else if (ent->isPlayer()) {
+-            JS::JsSetIndexedProperty(array, db, plrc->construct(new JsEntity(ent->getRuntimeID()), true));
+-        } else
+-            JS::JsSetIndexedProperty(array, db, entc->construct(new JsEntity(ent->getRuntimeID()), true));
+-        idx++;
+-        Chakra::Release(db);
+-    }
+-    return array;
+-}
+-
+-JsValueRef GameScriptingObject::worldGetEntCount(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                                 unsigned short argCount, void* callbackState) {
+-    if (!SDK::ClientInstance::get()->getLocalPlayer()) {
+-        Chakra::ThrowError(L"World is not available");
+-        return Chakra::GetUndefined();
+-    }
+-
+-    JsScript* scr = JsScript::getThis();
+-
+-    auto lvl = SDK::ClientInstance::get()->minecraft->getLevel();
+-    auto entList = lvl->getRuntimeActorList();
+-    return Chakra::MakeInt(static_cast<int>(entList.size()));
+-}
+-
+-JsValueRef GameScriptingObject::dimensionGetName(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                                 unsigned short argCount, void* callbackState) {
+-    if (!SDK::ClientInstance::get()->getLocalPlayer()) {
+-        Chakra::ThrowError(L"Dimension is not available");
+-        return Chakra::GetUndefined();
+-    }
+-
+-    auto& dim = SDK::ClientInstance::get()->getLocalPlayer()->dimension;
+-    return Chakra::MakeString(util::StrToWStr(dim->dimensionName));
+-}
+-
+-JsValueRef GameScriptingObject::dimensionGetBlock(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                                  unsigned short argCount, void* callbackState) {
+-    if (!Chakra::VerifyArgCount(argCount, 4)) return JS_INVALID_REFERENCE;
+-    if (!Chakra::VerifyParameters({ { arguments[1], JsValueType::JsNumber },
+-                                    { arguments[2], JsValueType::JsNumber },
+-                                    { arguments[3], JsValueType::JsNumber } }))
+-        return JS_INVALID_REFERENCE;
+-
+-    int x = Chakra::GetInt(arguments[1]);
+-    int y = Chakra::GetInt(arguments[2]);
+-    int z = Chakra::GetInt(arguments[3]);
+-
+-    if (!SDK::ClientInstance::get()->getLocalPlayer()) {
+-        Chakra::ThrowError(L"Dimension is not available");
+-        return Chakra::GetUndefined();
+-    }
+-
+-    JsScript* scr = JsScript::getThis();
+-    if (!Latite::getPluginManager().hasPermission(scr->getPlugin(), PluginManager::Permission::Operator)) {
+-        Chakra::ThrowError(L"No permission to use getBlock here");
+-        return JS_INVALID_REFERENCE;
+-    }
+-
+-    auto reg = SDK::ClientInstance::get()->getRegion();
+-    if (!reg) {
+-        return Chakra::GetNull();
+-    }
+-
+-    auto block = reg->getBlock(x, y, z);
+-
+-    if (!block) {
+-        return Chakra::GetNull();
+-    }
+-
+-    return scr->getClass<JsBlock>()->construct(block, false);
+-}
+-
+-JsValueRef GameScriptingObject::getMousePosCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                                    unsigned short argCount, void* callbackState) {
+-    JsScript* script = JsScript::getThis();
+-
+-    auto vec2 = script->getClass<JsVec2>();
+-    if (vec2) {
+-        return vec2->construct(SDK::ClientInstance::get()->cursorPos);
+-    }
+-
+-    // could not find Vector2
+-    __debugbreak();
+-    return Chakra::GetUndefined();
+-}
+-
+-JsValueRef GameScriptingObject::getScreenSizeCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                                      unsigned short argCount, void* callbackState) {
+-    return JsScript::getThis()->getClass<JsVec2>()->construct(SDK::ClientInstance::get()->getGuiData()->screenSize);
+-}
+-
+-JsValueRef GameScriptingObject::getInputBinding(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                                unsigned short argCount, void* callbackState) {
+-    auto handler = SDK::ClientInstance::get()->inputHandler;
+-    if (!Chakra::VerifyArgCount(argCount, 2)) return JS_INVALID_REFERENCE;
+-    if (!Chakra::VerifyParameters({ { arguments[1], JsValueType::JsString } })) return JS_INVALID_REFERENCE;
+-
+-    auto key = Latite::getKeyboard().getMappedKey(util::WStrToStr(Chakra::GetString(arguments[1])));
+-    return Chakra::MakeInt(key);
+-}
+-
+-JsValueRef GameScriptingObject::getWorldCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                                 unsigned short argCount, void* callbackState) {
+-    // if (!SDK::ClientInstance::get()->minecraft->getLevel()) return Chakra::GetNull();
+-    JsContextRef ct;
+-    JS::JsGetCurrentContext(&ct);
+-    return reinterpret_cast<GameScriptingObject*>(callbackState)->worldObj;
+-}
+-
+-JsValueRef GameScriptingObject::getDimensionCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                                     unsigned short argCount, void* callbackState) {
+-    // if (!SDK::ClientInstance::get()->minecraft->getLevel()) return Chakra::GetNull();
+-    JsContextRef ct;
+-    JS::JsGetCurrentContext(&ct);
+-    return reinterpret_cast<GameScriptingObject*>(callbackState)->dimensionObj;
+-}
+-
+-JsValueRef GameScriptingObject::isInUICallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                               unsigned short argCount, void* callbackState) {
+-    return SDK::ClientInstance::get()->minecraftGame->isCursorGrabbed() ? Chakra::GetFalse() : Chakra::GetTrue();
+-}
+-
+-JsValueRef GameScriptingObject::getFOV(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                       unsigned short argCount, void* callbackState) {
+-    if (!SDK::ClientInstance::get()->getLocalPlayer()) {
+-        return Chakra::GetNull();
+-    }
+-
+-    auto lrp = SDK::ClientInstance::get()->levelRenderer->getLevelRendererPlayer();
+-    return JsScript::getThis()->getClass<JsVec2>()->construct(Vec2(lrp->getFovX(), lrp->getFovY()));
+-}
+-
+-JsValueRef GameScriptingObject::getCameraPosition(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                                  unsigned short argCount, void* callbackState) {
+-    if (!SDK::ClientInstance::get()->getLocalPlayer()) {
+-        return Chakra::GetNull();
+-    }
+-
+-    auto lrp = SDK::ClientInstance::get()->levelRenderer->getLevelRendererPlayer();
+-    return JsScript::getThis()->getClass<JsVec3>()->construct(lrp->getOrigin());
+-}
+-
+-JsValueRef GameScriptingObject::captureCursor(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                              unsigned short argCount, void* callbackState) {
+-    SDK::ClientInstance::get()->grabCursor();
+-    return Chakra::GetNull();
+-}
+-
+-JsValueRef GameScriptingObject::releaseCursor(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                              unsigned short argCount, void* callbackState) {
+-    SDK::ClientInstance::get()->releaseCursor();
+-    return Chakra::GetNull();
+-}
+-
+-JsValueRef GameScriptingObject::isKeyDown(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                          unsigned short argCount, void* callbackState) {
+-    if (!Chakra::VerifyArgCount(argCount, 2)) return JS_INVALID_REFERENCE;
+-    if (!Chakra::VerifyParameters({ { arguments[1], JsNumber } })) return JS_INVALID_REFERENCE;
+-
+-    int vKey = Chakra::GetInt(arguments[1]);
+-    if (vKey < 0 || (vKey > 255 && !controller_input::isButton(vKey))) {
+-        Chakra::ThrowError(L"Key code is not a keyboard key or controller button");
+-        return JS_INVALID_REFERENCE;
+-    }
+-
+-    return Latite::getKeyboard().isKeyDown(vKey) ? Chakra::GetTrue() : Chakra::GetFalse();
+-}
+-
+-JsValueRef GameScriptingObject::sendChatCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                                 unsigned short argCount, void* callbackState) {
+-    if (!Chakra::VerifyArgCount(argCount, 2)) return JS_INVALID_REFERENCE;
+-    if (!Chakra::VerifyParameters({ { arguments[1], JsValueType::JsString } })) return JS_INVALID_REFERENCE;
+-
+-    JsPlugin* script = JsScript::getThis()->getPlugin();
+-
+-    if (Latite::getPluginManager().hasPermission(script, PluginManager::Permission::SendChat) &&
+-        Chakra::GetString(arguments[1]).size() < 250) {
+-        auto lp = SDK::ClientInstance::get()->getLocalPlayer();
+-        if (lp) {
+-            auto pkt = SDK::MinecraftPackets::createPacket(SDK::PacketID::TEXT);
+-            SDK::TextPacket* tp = reinterpret_cast<SDK::TextPacket*>(pkt.get());
+-            tp->chat(util::WStrToStr(Chakra::GetString(arguments[1])));
+-            lp->packetSender->sendToServer(pkt.get());
+-        }
+-
+-        return Chakra::GetUndefined();
+-    }
+-    Chakra::ThrowError(L"Permission denied to use sendChatMessage");
+-    return Chakra::GetUndefined();
+-}
+-
+-JsValueRef GameScriptingObject::executeCommand(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                               unsigned short argCount, void* callbackState) {
+-    if (!Chakra::VerifyArgCount(argCount, 2)) return Chakra::GetUndefined();
+-    if (!Chakra::VerifyParameters({ { arguments[1], JsValueType::JsString } })) return JS_INVALID_REFERENCE;
+-    auto str = util::WStrToStr(Chakra::GetString(arguments[1]));
+-
+-    if (str.size() > 250 || str.size() < 1 || str.at(0) != '/') return Chakra::GetUndefined();
+-
+-    auto lp = SDK::ClientInstance::get()->getLocalPlayer();
+-    if (lp) {
+-        auto pkt = SDK::MinecraftPackets::createPacket(SDK::PacketID::COMMAND_REQUEST);
+-        SDK::CommandRequestPacket* cmd = reinterpret_cast<SDK::CommandRequestPacket*>(pkt.get());
+-        cmd->applyCommand(util::WStrToStr(Chakra::GetString(arguments[1])));
+-
+-        lp->packetSender->sendToServer(pkt.get());
+-    }
+-    return Chakra::GetUndefined();
+-}
+-
+-JsValueRef GameScriptingObject::playSoundUI(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                            unsigned short argCount, void* callbackState) {
+-    if (!Chakra::VerifyArgCount(argCount, 4)) return JS_INVALID_REFERENCE;
+-    if (!Chakra::VerifyParameters(
+-            { { arguments[1], JsString }, { arguments[2], JsNumber }, { arguments[3], JsNumber } }))
+-        return JS_INVALID_REFERENCE;
+-
+-    std::string soundName = util::WStrToStr(Chakra::GetString(arguments[1]));
+-    float volume = static_cast<float>(Chakra::GetNumber(arguments[2]));
+-    float pitch = static_cast<float>(Chakra::GetNumber(arguments[3]));
+-
+-    util::PlaySoundUI(soundName, volume, pitch);
+-    return Chakra::GetUndefined();
+-}
+-
+-JsValueRef GameScriptingObject::getLocalPlayerCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                                       unsigned short argCount, void* callbackState) {
+-    auto lp = SDK::ClientInstance::get()->getLocalPlayer();
+-    if (!lp) return Chakra::GetNull();
+-    JsScript* script = JsScript::getThis();
+-
+-    auto cl = script->getClass<JsLocalPlayerClass>();
+-    return cl->construct(new JsEntity(1, JsEntity::AccessLevel::LocalPlayer), true);
+-}
+-
+-JsValueRef GameScriptingObject::getConnectedServerCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                                           unsigned short argCount, void* callbackState) {
+-    auto* connectionInfo = SDK::RemoteConnectorComposite::getConnectionInfo();
+-    if (!connectionInfo) return Chakra::GetNull();
+-    if (connectionInfo->hostIpAddress.empty()) return Chakra::GetNull();
+-
+-    std::wstring conn = util::StrToWStr(connectionInfo->hostIpAddress);
+-    JsValueRef ret;
+-    JS::JsPointerToString(conn.c_str(), conn.size(), &ret);
+-    return ret;
+-}
+-
+-JsValueRef GameScriptingObject::getConnectedFeaturedServerCallback(JsValueRef callee, bool isConstructor,
+-                                                                   JsValueRef* arguments, unsigned short argCount,
+-                                                                   void* callbackState) {
+-    auto* connectionInfo = SDK::RemoteConnectorComposite::getConnectionInfo();
+-    if (!connectionInfo) return Chakra::GetNull();
+-    if (connectionInfo->thirdPartyServerInfo.creatorName.empty()) return Chakra::GetNull();
+-
+-    std::wstring conn = util::StrToWStr(connectionInfo->thirdPartyServerInfo.creatorName);
+-    JsValueRef ret;
+-    JS::JsPointerToString(conn.c_str(), conn.size(), &ret);
+-    return ret;
+-}
+-
+-JsValueRef GameScriptingObject::getPortCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                                unsigned short argCount, void* callbackState) {
+-    auto* connectionInfo = SDK::RemoteConnectorComposite::getConnectionInfo();
+-    if (!connectionInfo) return Chakra::MakeInt(0);
+-
+-    return Chakra::MakeInt(connectionInfo->port);
+-}
++#include "pch.h"
++#include "GameScriptingObject.h"
++#include <cmath>
++#include "../JsScript.h"
++#include "client/script/class/classes/JsVec2.h"
++#include "mc/common/client/game/ClientInstance.h"
++#include "mc/common/client/game/MinecraftGame.h"
++#include "mc/common/client/renderer/game/LevelRenderer.h"
++#include "mc/common/client/player/LocalPlayer.h"
++#include "mc/common/world/Minecraft.h"
++#include "mc/common/world/level/BlockSource.h"
++
++#include "client/Latite.h"
++#include <client/input/Keyboard.h>
++#include "client/script/PluginManager.h"
++#include "util/Logger.h"
++#include "mc/common/network/packet/TextPacket.h"
++#include "../class/classes/game/JsEntityClass.h"
++#include "../class/classes/game/JsPlayerClass.h"
++#include "../class/classes/game/JsLocalPlayerClass.h"
++#include <mc/common/network/packet/CommandRequestPacket.h>
++#include <client/script/class/classes/game/JsBlock.h>
++#include <client/script/class/classes/JsVec3.h>
++#include "mc/common/network/MinecraftPackets.h"
++
++void GameScriptingObject::initialize(JsContextRef ctx, JsValueRef parentObj) {
++    this->createWorldObject();
++    Chakra::SetPropertyString(object, L"version", util::StrToWStr(Latite::get().gameVersion));
++    Chakra::DefineFunc(object, getLocalPlayerCallback, L"getLocalPlayer");
++    Chakra::DefineFunc(object, getMousePosCallback, L"getMousePos");
++    Chakra::DefineFunc(object, getScreenSizeCallback, L"getScreenSize");
++    Chakra::DefineFunc(object, isInUICallback, L"isInUI");
++    Chakra::DefineFunc(object, playSoundUI, L"playSoundUI");
++    Chakra::DefineFunc(object, sendChatCallback, L"sendChatMessage");
++    Chakra::DefineFunc(object, executeCommand, L"executeCommand");
++    Chakra::DefineFunc(object, getWorldCallback, L"getWorld", this);
++    Chakra::DefineFunc(object, getDimensionCallback, L"getDimension", this);
++    Chakra::DefineFunc(object, getConnectedServerCallback, L"getServer");
++    Chakra::DefineFunc(object, getPortCallback, L"getPort");
++    Chakra::DefineFunc(object, getConnectedFeaturedServerCallback, L"getFeaturedServer");
++    Chakra::DefineFunc(object, getInputBinding, L"getInputBinding");
++    Chakra::DefineFunc(object, getFOV, L"getFOV");
++    Chakra::DefineFunc(object, getCameraPosition, L"getCameraPosition");
++    Chakra::DefineFunc(object, captureCursor, L"captureCursor");
++    Chakra::DefineFunc(object, releaseCursor, L"releaseCursor");
++    Chakra::DefineFunc(object, isKeyDown, L"isKeyDown");
++}
++
++void GameScriptingObject::createWorldObject() {
++    JS::JsCreateObject(&worldObj);
++    // JS::JsAddRef(worldObj, nullptr); // never forget to add a reference to an object that isn't set !!
++
++    JS::JsCreateObject(&dimensionObj);
++    // JS::JsAddRef(dimensionObj, nullptr);
++
++    Chakra::DefineFunc(worldObj, worldExists, L"exists", this);
++    Chakra::DefineFunc(worldObj, worldGetEntList, L"getEntities", this);
++    Chakra::DefineFunc(worldObj, worldGetEntCount, L"getEntityCount", this);
++    Chakra::DefineFunc(worldObj, worldGetPlayers, L"getPlayers", this);
++    Chakra::DefineFunc(worldObj, worldGetName, L"getName", this);
++    Chakra::DefineFunc(dimensionObj, worldExists, L"exists", this);
++    Chakra::DefineFunc(dimensionObj, dimensionGetBlock, L"getBlock", this);
++    Chakra::DefineFunc(dimensionObj, dimensionGetSurface, L"getSurface", this);
++    Chakra::DefineFunc(dimensionObj, dimensionGetName, L"getName", this);
++    Chakra::SetProperty(Chakra::GetGlobalObject(), L"world", worldObj);
++    Chakra::SetProperty(Chakra::GetGlobalObject(), L"dimension", dimensionObj);
++}
++
++JsValueRef GameScriptingObject::worldExists(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                            unsigned short argCount, void* callbackState) {
++    return SDK::ClientInstance::get()->minecraft->getLevel() ? Chakra::GetTrue() : Chakra::GetFalse();
++}
++
++JsValueRef GameScriptingObject::worldGetName(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                             unsigned short argCount, void* callbackState) {
++    if (!SDK::ClientInstance::get()->getLocalPlayer()) {
++        Chakra::ThrowError(L"World is not allowed to be used here");
++        return Chakra::GetUndefined();
++    }
++
++    return Chakra::MakeString(util::StrToWStr(SDK::ClientInstance::get()->minecraft->getLevel()->getLevelName()));
++}
++
++JsValueRef GameScriptingObject::worldGetPlayers(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                                unsigned short argCount, void* callbackState) {
++    if (!SDK::ClientInstance::get()->getLocalPlayer()) {
++        Chakra::ThrowError(L"World is not allowed to be used here");
++        return Chakra::GetUndefined();
++    }
++
++    JsValueRef array;
++    auto arr = SDK::ClientInstance::get()->minecraft->getLevel()->getPlayerList();
++    auto size = arr->size();
++    JS::JsCreateArray(static_cast<unsigned>(size), &array);
++
++    int i = 0;
++    for (auto& pair : *arr) {
++        JS::JsSetIndexedProperty(array, Chakra::MakeInt(i), Chakra::MakeString(util::StrToWStr(pair.second.name)));
++        ++i;
++    }
++    return array;
++}
++
++JsValueRef GameScriptingObject::worldGetEntList(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                                unsigned short argCount, void* callbackState) {
++    if (!SDK::ClientInstance::get()->getLocalPlayer()) {
++        Chakra::ThrowError(L"World is not available");
++        return Chakra::GetUndefined();
++    }
++
++    JsPlugin* scr = JsScript::getThis()->getPlugin();
++
++    if (!Latite::getPluginManager().hasPermission(scr, PluginManager::Permission::Operator)) {
++        Chakra::ThrowError(L"No permission to use getEntityList here");
++        return JS_INVALID_REFERENCE;
++    }
++
++    auto lvl = SDK::ClientInstance::get()->minecraft->getLevel();
++    JsValueRef array;
++    auto entList = lvl->getRuntimeActorList();
++    unsigned sz = static_cast<unsigned>(entList.size());
++    JS::JsCreateArray(sz, &array);
++    unsigned idx = 0;
++    for (auto& ent : entList) {
++        JsValueRef db;
++        JS::JsDoubleToNumber(static_cast<double>(idx), &db);
++        JsScript* script = JsScript::getThis();
++
++        auto entc = script->getClass<JsEntityClass>();
++        auto plrc = script->getClass<JsPlayerClass>();
++        auto lplrc = script->getClass<JsLocalPlayerClass>();
++
++        if (ent->getRuntimeID() == 1) {
++            JS::JsSetIndexedProperty(
++                array, db,
++                lplrc->construct(new JsEntity(ent->getRuntimeID(), JsEntity::AccessLevel::LocalPlayer), true));
++        } else if (ent->isPlayer()) {
++            JS::JsSetIndexedProperty(array, db, plrc->construct(new JsEntity(ent->getRuntimeID()), true));
++        } else
++            JS::JsSetIndexedProperty(array, db, entc->construct(new JsEntity(ent->getRuntimeID()), true));
++        idx++;
++        Chakra::Release(db);
++    }
++    return array;
++}
++
++JsValueRef GameScriptingObject::worldGetEntCount(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                                 unsigned short argCount, void* callbackState) {
++    if (!SDK::ClientInstance::get()->getLocalPlayer()) {
++        Chakra::ThrowError(L"World is not available");
++        return Chakra::GetUndefined();
++    }
++
++    JsScript* scr = JsScript::getThis();
++
++    auto lvl = SDK::ClientInstance::get()->minecraft->getLevel();
++    auto entList = lvl->getRuntimeActorList();
++    return Chakra::MakeInt(static_cast<int>(entList.size()));
++}
++
++JsValueRef GameScriptingObject::dimensionGetName(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                                 unsigned short argCount, void* callbackState) {
++    if (!SDK::ClientInstance::get()->getLocalPlayer()) {
++        Chakra::ThrowError(L"Dimension is not available");
++        return Chakra::GetUndefined();
++    }
++
++    auto& dim = SDK::ClientInstance::get()->getLocalPlayer()->dimension;
++    return Chakra::MakeString(util::StrToWStr(dim->dimensionName));
++}
++
++// Bedrock Horizons fork addition. GPL-3.0, following Latite's license.
++// A returned air/block is not proof that all server subchunks have arrived.
++// This API intentionally reports observations with known=false.
++JsValueRef GameScriptingObject::dimensionGetSurface(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                                    unsigned short argCount, void* callbackState) {
++    if (!Chakra::VerifyArgCount(argCount, 3)) return JS_INVALID_REFERENCE;
++    if (!Chakra::VerifyParameters({{arguments[1], JsNumber}, {arguments[2], JsNumber}}))
++        return JS_INVALID_REFERENCE;
++
++    JsValueRef result;
++    JS::JsCreateObject(&result);
++    Chakra::SetPropertyBool(result, L"known", false);
++    Chakra::SetPropertyString(result, L"readiness", L"unverified");
++    Chakra::SetPropertyString(result, L"reason", L"chunk-completeness-unverified");
++    Chakra::SetProperty(result, L"observed", Chakra::GetNull());
++    auto unavailable = [&](const wchar_t* reason) {
++        Chakra::SetPropertyString(result, L"reason", reason);
++        return result;
++    };
++
++    const double requestedX = Chakra::GetNumber(arguments[1]);
++    const double requestedZ = Chakra::GetNumber(arguments[2]);
++    if (!std::isfinite(requestedX) || !std::isfinite(requestedZ) ||
++        std::floor(requestedX) != requestedX || std::floor(requestedZ) != requestedZ ||
++        std::abs(requestedX) > 30000000.0 || std::abs(requestedZ) > 30000000.0)
++        return unavailable(L"invalid-coordinates");
++
++    auto* client = SDK::ClientInstance::get();
++    if (!client) return unavailable(L"client-unavailable");
++    auto* player = client->getLocalPlayer();
++    auto* source = client->getRegion();
++    if (!player || !player->dimension || !source) return unavailable(L"world-unavailable");
++
++    const auto& position = player->getPos();
++    if (!std::isfinite(position.x) || !std::isfinite(position.z) ||
++        std::abs(requestedX - position.x) > 128.0 || std::abs(requestedZ - position.z) > 128.0)
++        return unavailable(L"outside-observation-radius");
++
++    const auto& dimensionName = player->dimension->dimensionName;
++    int minY = 0, maxY = 0;
++    if (dimensionName == "Overworld" || dimensionName == "overworld" || dimensionName == "minecraft:overworld") {
++        minY = -64; maxY = 319;
++    } else if (dimensionName == "Nether" || dimensionName == "nether" || dimensionName == "minecraft:nether") {
++        minY = 0; maxY = 127;
++    } else if (dimensionName == "The End" || dimensionName == "the_end" || dimensionName == "minecraft:the_end") {
++        minY = 0; maxY = 255;
++    } else {
++        return unavailable(L"unsupported-dimension");
++    }
++
++    // Bound synchronous work on the game thread. This is a developer prototype.
++    static auto budgetStart = std::chrono::steady_clock::now();
++    static unsigned scansInBudget = 0;
++    const auto now = std::chrono::steady_clock::now();
++    if (now - budgetStart >= std::chrono::milliseconds(50)) {
++        budgetStart = now;
++        scansInBudget = 0;
++    }
++    if (scansInBudget >= 4) return unavailable(L"observation-budget-exhausted");
++    ++scansInBudget;
++
++    const int x = static_cast<int>(requestedX), z = static_cast<int>(requestedZ);
++    // This is only a missing-chunk guard. It is NOT a completeness guarantee.
++    if (!source->getChunkAt(BlockPos{x, 64, z})) return unavailable(L"chunk-unavailable");
++    for (int y = maxY; y >= minY; --y) {
++        const BlockPos blockPosition{x, y, z};
++        if (!source->hasBlock(blockPosition)) return unavailable(L"block-unavailable");
++        auto* block = source->getBlock(x, y, z);
++        if (!block || !block->legacyBlock) return unavailable(L"block-unavailable");
++        const std::string name = block->legacyBlock->namespacedId.getString();
++        if (name.empty()) return unavailable(L"block-name-unavailable");
++        if (name == "minecraft:air" || name == "minecraft:cave_air" || name == "minecraft:void_air") continue;
++
++        const bool water = name == "minecraft:water" || name == "minecraft:flowing_water";
++        std::array<int, 3> rgb{128, 128, 128};
++        if (water) rgb = {45, 86, 172};
++        else if (name.find("leaves") != std::string::npos) rgb = {62, 112, 45};
++        else if (name == "minecraft:grass_block" || name == "minecraft:grass") rgb = {107, 145, 62};
++        else if (name.find("snow") != std::string::npos || name == "minecraft:quartz_block") rgb = {234, 241, 241};
++        else if (name == "minecraft:sand" || name.find("sandstone") != std::string::npos) rgb = {216, 206, 149};
++        else if (name.find("deepslate") != std::string::npos) rgb = {75, 75, 79};
++        else if (name == "minecraft:netherrack") rgb = {111, 57, 54};
++        else if (name == "minecraft:end_stone") rgb = {217, 217, 153};
++        else if (name == "minecraft:dirt" || name.find("mud") != std::string::npos) rgb = {127, 91, 65};
++
++        JsValueRef observed, color;
++        JS::JsCreateObject(&observed);
++        JS::JsCreateArray(3, &color);
++        for (unsigned i = 0; i < 3; ++i)
++            JS::JsSetIndexedProperty(color, Chakra::MakeInt(i), Chakra::MakeInt(rgb[i]));
++        Chakra::SetPropertyNumber(observed, L"height", y + 1);
++        Chakra::SetPropertyString(observed, L"block", util::StrToWStr(name));
++        Chakra::SetPropertyBool(observed, L"water", water);
++        Chakra::SetProperty(observed, L"color", color);
++        Chakra::SetPropertyBool(observed, L"colorEstimated", true);
++        Chakra::SetPropertyNumber(observed, L"minY", minY);
++        Chakra::SetPropertyNumber(observed, L"maxY", maxY);
++        Chakra::SetProperty(result, L"observed", observed);
++        return result;
++    }
++    // Do not cache all-air columns as confirmed void terrain.
++    return unavailable(L"no-observed-surface");
++}
++
++JsValueRef GameScriptingObject::dimensionGetBlock(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                                  unsigned short argCount, void* callbackState) {
++    if (!Chakra::VerifyArgCount(argCount, 4)) return JS_INVALID_REFERENCE;
++    if (!Chakra::VerifyParameters({ { arguments[1], JsValueType::JsNumber },
++                                    { arguments[2], JsValueType::JsNumber },
++                                    { arguments[3], JsValueType::JsNumber } }))
++        return JS_INVALID_REFERENCE;
++
++    int x = Chakra::GetInt(arguments[1]);
++    int y = Chakra::GetInt(arguments[2]);
++    int z = Chakra::GetInt(arguments[3]);
++
++    if (!SDK::ClientInstance::get()->getLocalPlayer()) {
++        Chakra::ThrowError(L"Dimension is not available");
++        return Chakra::GetUndefined();
++    }
++
++    JsScript* scr = JsScript::getThis();
++    if (!Latite::getPluginManager().hasPermission(scr->getPlugin(), PluginManager::Permission::Operator)) {
++        Chakra::ThrowError(L"No permission to use getBlock here");
++        return JS_INVALID_REFERENCE;
++    }
++
++    auto reg = SDK::ClientInstance::get()->getRegion();
++    if (!reg) {
++        return Chakra::GetNull();
++    }
++
++    auto block = reg->getBlock(x, y, z);
++
++    if (!block) {
++        return Chakra::GetNull();
++    }
++
++    return scr->getClass<JsBlock>()->construct(block, false);
++}
++
++JsValueRef GameScriptingObject::getMousePosCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                                    unsigned short argCount, void* callbackState) {
++    JsScript* script = JsScript::getThis();
++
++    auto vec2 = script->getClass<JsVec2>();
++    if (vec2) {
++        return vec2->construct(SDK::ClientInstance::get()->cursorPos);
++    }
++
++    // could not find Vector2
++    __debugbreak();
++    return Chakra::GetUndefined();
++}
++
++JsValueRef GameScriptingObject::getScreenSizeCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                                      unsigned short argCount, void* callbackState) {
++    return JsScript::getThis()->getClass<JsVec2>()->construct(SDK::ClientInstance::get()->getGuiData()->screenSize);
++}
++
++JsValueRef GameScriptingObject::getInputBinding(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                                unsigned short argCount, void* callbackState) {
++    auto handler = SDK::ClientInstance::get()->inputHandler;
++    if (!Chakra::VerifyArgCount(argCount, 2)) return JS_INVALID_REFERENCE;
++    if (!Chakra::VerifyParameters({ { arguments[1], JsValueType::JsString } })) return JS_INVALID_REFERENCE;
++
++    auto key = Latite::getKeyboard().getMappedKey(util::WStrToStr(Chakra::GetString(arguments[1])));
++    return Chakra::MakeInt(key);
++}
++
++JsValueRef GameScriptingObject::getWorldCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                                 unsigned short argCount, void* callbackState) {
++    // if (!SDK::ClientInstance::get()->minecraft->getLevel()) return Chakra::GetNull();
++    JsContextRef ct;
++    JS::JsGetCurrentContext(&ct);
++    return reinterpret_cast<GameScriptingObject*>(callbackState)->worldObj;
++}
++
++JsValueRef GameScriptingObject::getDimensionCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                                     unsigned short argCount, void* callbackState) {
++    // if (!SDK::ClientInstance::get()->minecraft->getLevel()) return Chakra::GetNull();
++    JsContextRef ct;
++    JS::JsGetCurrentContext(&ct);
++    return reinterpret_cast<GameScriptingObject*>(callbackState)->dimensionObj;
++}
++
++JsValueRef GameScriptingObject::isInUICallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                               unsigned short argCount, void* callbackState) {
++    return SDK::ClientInstance::get()->minecraftGame->isCursorGrabbed() ? Chakra::GetFalse() : Chakra::GetTrue();
++}
++
++JsValueRef GameScriptingObject::getFOV(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                       unsigned short argCount, void* callbackState) {
++    if (!SDK::ClientInstance::get()->getLocalPlayer()) {
++        return Chakra::GetNull();
++    }
++
++    auto lrp = SDK::ClientInstance::get()->levelRenderer->getLevelRendererPlayer();
++    return JsScript::getThis()->getClass<JsVec2>()->construct(Vec2(lrp->getFovX(), lrp->getFovY()));
++}
++
++JsValueRef GameScriptingObject::getCameraPosition(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                                  unsigned short argCount, void* callbackState) {
++    if (!SDK::ClientInstance::get()->getLocalPlayer()) {
++        return Chakra::GetNull();
++    }
++
++    auto lrp = SDK::ClientInstance::get()->levelRenderer->getLevelRendererPlayer();
++    return JsScript::getThis()->getClass<JsVec3>()->construct(lrp->getOrigin());
++}
++
++JsValueRef GameScriptingObject::captureCursor(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                              unsigned short argCount, void* callbackState) {
++    SDK::ClientInstance::get()->grabCursor();
++    return Chakra::GetNull();
++}
++
++JsValueRef GameScriptingObject::releaseCursor(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                              unsigned short argCount, void* callbackState) {
++    SDK::ClientInstance::get()->releaseCursor();
++    return Chakra::GetNull();
++}
++
++JsValueRef GameScriptingObject::isKeyDown(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                          unsigned short argCount, void* callbackState) {
++    if (!Chakra::VerifyArgCount(argCount, 2)) return JS_INVALID_REFERENCE;
++    if (!Chakra::VerifyParameters({ { arguments[1], JsNumber } })) return JS_INVALID_REFERENCE;
++
++    int vKey = Chakra::GetInt(arguments[1]);
++    if (vKey < 0 || (vKey > 255 && !controller_input::isButton(vKey))) {
++        Chakra::ThrowError(L"Key code is not a keyboard key or controller button");
++        return JS_INVALID_REFERENCE;
++    }
++
++    return Latite::getKeyboard().isKeyDown(vKey) ? Chakra::GetTrue() : Chakra::GetFalse();
++}
++
++JsValueRef GameScriptingObject::sendChatCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                                 unsigned short argCount, void* callbackState) {
++    if (!Chakra::VerifyArgCount(argCount, 2)) return JS_INVALID_REFERENCE;
++    if (!Chakra::VerifyParameters({ { arguments[1], JsValueType::JsString } })) return JS_INVALID_REFERENCE;
++
++    JsPlugin* script = JsScript::getThis()->getPlugin();
++
++    if (Latite::getPluginManager().hasPermission(script, PluginManager::Permission::SendChat) &&
++        Chakra::GetString(arguments[1]).size() < 250) {
++        auto lp = SDK::ClientInstance::get()->getLocalPlayer();
++        if (lp) {
++            auto pkt = SDK::MinecraftPackets::createPacket(SDK::PacketID::TEXT);
++            SDK::TextPacket* tp = reinterpret_cast<SDK::TextPacket*>(pkt.get());
++            tp->chat(util::WStrToStr(Chakra::GetString(arguments[1])));
++            lp->packetSender->sendToServer(pkt.get());
++        }
++
++        return Chakra::GetUndefined();
++    }
++    Chakra::ThrowError(L"Permission denied to use sendChatMessage");
++    return Chakra::GetUndefined();
++}
++
++JsValueRef GameScriptingObject::executeCommand(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                               unsigned short argCount, void* callbackState) {
++    if (!Chakra::VerifyArgCount(argCount, 2)) return Chakra::GetUndefined();
++    if (!Chakra::VerifyParameters({ { arguments[1], JsValueType::JsString } })) return JS_INVALID_REFERENCE;
++    auto str = util::WStrToStr(Chakra::GetString(arguments[1]));
++
++    if (str.size() > 250 || str.size() < 1 || str.at(0) != '/') return Chakra::GetUndefined();
++
++    auto lp = SDK::ClientInstance::get()->getLocalPlayer();
++    if (lp) {
++        auto pkt = SDK::MinecraftPackets::createPacket(SDK::PacketID::COMMAND_REQUEST);
++        SDK::CommandRequestPacket* cmd = reinterpret_cast<SDK::CommandRequestPacket*>(pkt.get());
++        cmd->applyCommand(util::WStrToStr(Chakra::GetString(arguments[1])));
++
++        lp->packetSender->sendToServer(pkt.get());
++    }
++    return Chakra::GetUndefined();
++}
++
++JsValueRef GameScriptingObject::playSoundUI(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                            unsigned short argCount, void* callbackState) {
++    if (!Chakra::VerifyArgCount(argCount, 4)) return JS_INVALID_REFERENCE;
++    if (!Chakra::VerifyParameters(
++            { { arguments[1], JsString }, { arguments[2], JsNumber }, { arguments[3], JsNumber } }))
++        return JS_INVALID_REFERENCE;
++
++    std::string soundName = util::WStrToStr(Chakra::GetString(arguments[1]));
++    float volume = static_cast<float>(Chakra::GetNumber(arguments[2]));
++    float pitch = static_cast<float>(Chakra::GetNumber(arguments[3]));
++
++    util::PlaySoundUI(soundName, volume, pitch);
++    return Chakra::GetUndefined();
++}
++
++JsValueRef GameScriptingObject::getLocalPlayerCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                                       unsigned short argCount, void* callbackState) {
++    auto lp = SDK::ClientInstance::get()->getLocalPlayer();
++    if (!lp) return Chakra::GetNull();
++    JsScript* script = JsScript::getThis();
++
++    auto cl = script->getClass<JsLocalPlayerClass>();
++    return cl->construct(new JsEntity(1, JsEntity::AccessLevel::LocalPlayer), true);
++}
++
++JsValueRef GameScriptingObject::getConnectedServerCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                                           unsigned short argCount, void* callbackState) {
++    auto* connectionInfo = SDK::RemoteConnectorComposite::getConnectionInfo();
++    if (!connectionInfo) return Chakra::GetNull();
++    if (connectionInfo->hostIpAddress.empty()) return Chakra::GetNull();
++
++    std::wstring conn = util::StrToWStr(connectionInfo->hostIpAddress);
++    JsValueRef ret;
++    JS::JsPointerToString(conn.c_str(), conn.size(), &ret);
++    return ret;
++}
++
++JsValueRef GameScriptingObject::getConnectedFeaturedServerCallback(JsValueRef callee, bool isConstructor,
++                                                                   JsValueRef* arguments, unsigned short argCount,
++                                                                   void* callbackState) {
++    auto* connectionInfo = SDK::RemoteConnectorComposite::getConnectionInfo();
++    if (!connectionInfo) return Chakra::GetNull();
++    if (connectionInfo->thirdPartyServerInfo.creatorName.empty()) return Chakra::GetNull();
++
++    std::wstring conn = util::StrToWStr(connectionInfo->thirdPartyServerInfo.creatorName);
++    JsValueRef ret;
++    JS::JsPointerToString(conn.c_str(), conn.size(), &ret);
++    return ret;
++}
++
++JsValueRef GameScriptingObject::getPortCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                                unsigned short argCount, void* callbackState) {
++    auto* connectionInfo = SDK::RemoteConnectorComposite::getConnectionInfo();
++    if (!connectionInfo) return Chakra::MakeInt(0);
++
++    return Chakra::MakeInt(connectionInfo->port);
++}
+--- a/src/client/script/globals/GameScriptingObject.h
++++ b/src/client/script/globals/GameScriptingObject.h
+@@ -1,83 +1,85 @@
+-#pragma once
+-#include "../ScriptingObject.h"
+-
+-class GameScriptingObject : public ScriptingObject {
+-    static JsValueRef CALLBACK emptyCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                             unsigned short argCount, void* callbackState);
+-    static JsValueRef CALLBACK sendChatCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                                unsigned short argCount, void* callbackState);
+-    static JsValueRef CALLBACK executeCommand(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                              unsigned short argCount, void* callbackState);
+-    static JsValueRef CALLBACK playSoundUI(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                           unsigned short argCount, void* callbackState);
+-    static JsValueRef CALLBACK getLocalPlayerCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                                      unsigned short argCount, void* callbackState);
+-    static JsValueRef CALLBACK getConnectedServerCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                                          unsigned short argCount, void* callbackState);
+-    static JsValueRef CALLBACK getConnectedFeaturedServerCallback(JsValueRef callee, bool isConstructor,
+-                                                                  JsValueRef* arguments, unsigned short argCount,
+-                                                                  void* callbackState);
+-    static JsValueRef CALLBACK getPortCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                               unsigned short argCount, void* callbackState);
+-    static JsValueRef CALLBACK getMousePosCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                                   unsigned short argCount, void* callbackState);
+-    static JsValueRef CALLBACK getScreenSizeCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                                     unsigned short argCount, void* callbackState);
+-    static JsValueRef CALLBACK getInputBinding(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                               unsigned short argCount, void* callbackState);
+-
+-    static JsValueRef CALLBACK getWorldCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                                unsigned short argCount, void* callbackState);
+-    static JsValueRef CALLBACK getDimensionCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                                    unsigned short argCount, void* callbackState);
+-    static JsValueRef CALLBACK isLocalWorldCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                                    unsigned short argCount, void* callbackState);
+-    static JsValueRef CALLBACK isInUICallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                              unsigned short argCount, void* callbackState);
+-    static JsValueRef CALLBACK getScreenCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                                 unsigned short argCount, void* callbackState);
+-    static JsValueRef CALLBACK getFOV(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                      unsigned short argCount, void* callbackState);
+-    static JsValueRef CALLBACK getCameraPosition(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                                 unsigned short argCount, void* callbackState);
+-    static JsValueRef CALLBACK captureCursor(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                             unsigned short argCount, void* callbackState);
+-    static JsValueRef CALLBACK releaseCursor(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                             unsigned short argCount, void* callbackState);
+-    static JsValueRef CALLBACK isKeyDown(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                         unsigned short argCount, void* callbackState);
+-
+-public:
+-    inline static int objectID = -1;
+-    GameScriptingObject(int id)
+-        : ScriptingObject(id, L"game") {
+-        GameScriptingObject::objectID = id;
+-    }
+-
+-    void initialize(JsContextRef ctx, JsValueRef parentObj) override;
+-
+-private:
+-    void createWorldObject();
+-
+-    JsValueRef worldObj = JS_INVALID_REFERENCE;
+-    JsValueRef dimensionObj = JS_INVALID_REFERENCE;
+-
+-    static JsValueRef CALLBACK worldExists(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                           unsigned short argCount, void* callbackState);
+-    static JsValueRef CALLBACK worldGetName(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                            unsigned short argCount, void* callbackState);
+-    static JsValueRef CALLBACK worldGetPlayers(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                               unsigned short argCount, void* callbackState);
+-    static JsValueRef CALLBACK worldGetEntList(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                               unsigned short argCount, void* callbackState);
+-    static JsValueRef CALLBACK worldGetEntCount(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                                unsigned short argCount, void* callbackState);
+-
+-    static JsValueRef CALLBACK dimensionGetName(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                                unsigned short argCount, void* callbackState);
+-    static JsValueRef CALLBACK dimensionGetBlock(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                                 unsigned short argCount, void* callbackState);
+-
+-public:
+-    ~GameScriptingObject() override {}
+-};
++#pragma once
++#include "../ScriptingObject.h"
++
++class GameScriptingObject : public ScriptingObject {
++    static JsValueRef CALLBACK emptyCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                             unsigned short argCount, void* callbackState);
++    static JsValueRef CALLBACK sendChatCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                                unsigned short argCount, void* callbackState);
++    static JsValueRef CALLBACK executeCommand(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                              unsigned short argCount, void* callbackState);
++    static JsValueRef CALLBACK playSoundUI(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                           unsigned short argCount, void* callbackState);
++    static JsValueRef CALLBACK getLocalPlayerCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                                      unsigned short argCount, void* callbackState);
++    static JsValueRef CALLBACK getConnectedServerCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                                          unsigned short argCount, void* callbackState);
++    static JsValueRef CALLBACK getConnectedFeaturedServerCallback(JsValueRef callee, bool isConstructor,
++                                                                  JsValueRef* arguments, unsigned short argCount,
++                                                                  void* callbackState);
++    static JsValueRef CALLBACK getPortCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                               unsigned short argCount, void* callbackState);
++    static JsValueRef CALLBACK getMousePosCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                                   unsigned short argCount, void* callbackState);
++    static JsValueRef CALLBACK getScreenSizeCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                                     unsigned short argCount, void* callbackState);
++    static JsValueRef CALLBACK getInputBinding(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                               unsigned short argCount, void* callbackState);
++
++    static JsValueRef CALLBACK getWorldCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                                unsigned short argCount, void* callbackState);
++    static JsValueRef CALLBACK getDimensionCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                                    unsigned short argCount, void* callbackState);
++    static JsValueRef CALLBACK isLocalWorldCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                                    unsigned short argCount, void* callbackState);
++    static JsValueRef CALLBACK isInUICallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                              unsigned short argCount, void* callbackState);
++    static JsValueRef CALLBACK getScreenCallback(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                                 unsigned short argCount, void* callbackState);
++    static JsValueRef CALLBACK getFOV(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                      unsigned short argCount, void* callbackState);
++    static JsValueRef CALLBACK getCameraPosition(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                                 unsigned short argCount, void* callbackState);
++    static JsValueRef CALLBACK captureCursor(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                             unsigned short argCount, void* callbackState);
++    static JsValueRef CALLBACK releaseCursor(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                             unsigned short argCount, void* callbackState);
++    static JsValueRef CALLBACK isKeyDown(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                         unsigned short argCount, void* callbackState);
++
++public:
++    inline static int objectID = -1;
++    GameScriptingObject(int id)
++        : ScriptingObject(id, L"game") {
++        GameScriptingObject::objectID = id;
++    }
++
++    void initialize(JsContextRef ctx, JsValueRef parentObj) override;
++
++private:
++    void createWorldObject();
++
++    JsValueRef worldObj = JS_INVALID_REFERENCE;
++    JsValueRef dimensionObj = JS_INVALID_REFERENCE;
++
++    static JsValueRef CALLBACK worldExists(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                           unsigned short argCount, void* callbackState);
++    static JsValueRef CALLBACK worldGetName(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                            unsigned short argCount, void* callbackState);
++    static JsValueRef CALLBACK worldGetPlayers(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                               unsigned short argCount, void* callbackState);
++    static JsValueRef CALLBACK worldGetEntList(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                               unsigned short argCount, void* callbackState);
++    static JsValueRef CALLBACK worldGetEntCount(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                                unsigned short argCount, void* callbackState);
++
++    static JsValueRef CALLBACK dimensionGetName(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                                unsigned short argCount, void* callbackState);
++    static JsValueRef CALLBACK dimensionGetSurface(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                                   unsigned short argCount, void* callbackState);
++    static JsValueRef CALLBACK dimensionGetBlock(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                                 unsigned short argCount, void* callbackState);
++
++public:
++    ~GameScriptingObject() override {}
++};
+--- a/src/client/script/libraries/Filesystem.cpp
++++ b/src/client/script/libraries/Filesystem.cpp
+@@ -1,351 +1,349 @@
+-#include "pch.h"
+-#include "Filesystem.h"
+-#include <filesystem>
+-#include <fstream>
+-#include "../JsScript.h"
+-#include "util/ChakraUtil.h"
+-
+-namespace fs = std::filesystem;
+-
+-JsValueRef Filesystem::initialize(JsValueRef parent) {
+-    JsValueRef ret;
+-    JS::JsCreateObject(&ret);
+-
+-    Chakra::DefineFunc(ret, write, L"writeAsync", this);
+-    Chakra::DefineFunc(ret, writeSync, L"write", this);
+-    Chakra::DefineFunc(ret, read, L"readAsync", this);
+-    Chakra::DefineFunc(ret, readSync, L"read", this);
+-    Chakra::DefineFunc(ret, existsSync, L"exists", this);
+-    Chakra::DefineFunc(ret, createDirectorySync, L"createDirectory", this);
+-    Chakra::DefineFunc(ret, appendSync, L"append", this);
+-    Chakra::DefineFunc(ret, deleteFile, L"delete", this);
+-    Chakra::DefineFunc(ret, readdirSync, L"readDirectory", this);
+-    Chakra::DefineFunc(ret, moveSync, L"move", this);
+-    return ret;
+-}
+-
+-std::wstring Filesystem::getPath(std::wstring relPath) {
+-    try {
+-        if (fs::exists(relPath)) {
+-            return relPath;
+-        }
+-    } catch (...) {}
+-    return owner->getFolderPath() / relPath;
+-}
+-
+-namespace {
+-    void throwFsError() {
+-        char st[100]; // idfk
+-        strerror_s(st, sizeof(st), errno);
+-        std::wstring wstr = util::StrToWStr(st);
+-        Chakra::ThrowError(L"Filesystem error code " + std::to_wstring(errno) + L": " + wstr);
+-    }
+-}
+-
+-JsValueRef Filesystem::write(JsValueRef callee, bool isConstructor, JsValueRef* arguments, unsigned short argCount,
+-                             void* callbackState) {
+-    auto undef = Chakra::GetUndefined();
+-    if (!Chakra::VerifyArgCount(argCount, 4)) return undef;
+-    if (!Chakra::VerifyParameters(
+-            { { arguments[1], JsString }, { arguments[2], JsTypedArray }, { arguments[3], JsFunction } }))
+-        return undef;
+-
+-    auto thi = reinterpret_cast<Filesystem*>(callbackState);
+-    auto op = std::make_shared<FSAsyncOperation>(
+-        arguments[3],
+-        [](JsScript::AsyncOperation* op_) {
+-            auto op = reinterpret_cast<FSAsyncOperation*>(op_);
+-            auto& arguments = op->params;
+-            auto thi = reinterpret_cast<Filesystem*>(op->param);
+-            std::wofstream ofs;
+-            ofs.open(op->path, std::ios::out | std::ios::binary);
+-            int errn = 0;
+-            if (ofs.fail()) {
+-                errn = errno;
+-            } else {
+-                for (size_t i = 0; i < op->data->size(); i++) {
+-                    ofs << (char)op->data->data()[i];
+-                }
+-            }
+-            ofs.close();
+-            ofs.flush();
+-            op->err = errn;
+-            op->flagDone = true;
+-        },
+-        thi);
+-
+-    op->path = thi->getPath(Chakra::GetString(arguments[1]));
+-    op->data = std::vector<BYTE>();
+-
+-    BYTE* buf;
+-    unsigned int bufSize;
+-    JS::JsGetTypedArrayStorage(arguments[2], &buf, &bufSize, nullptr, nullptr);
+-
+-    for (size_t i = 0; i < bufSize; i++) {
+-        op->data->push_back(buf[i]);
+-    }
+-
+-    op->outData = false;
+-
+-    op->run();
+-
+-    thi->owner->pendingOperations.push_back(op);
+-    return undef;
+-}
+-
+-JsValueRef Filesystem::read(JsValueRef callee, bool isConstructor, JsValueRef* arguments, unsigned short argCount,
+-                            void* callbackState) {
+-    auto undef = Chakra::GetUndefined();
+-    if (!Chakra::VerifyArgCount(argCount, 3)) return undef;
+-    if (!Chakra::VerifyParameters({ { arguments[1], JsString }, { arguments[2], JsFunction } })) return undef;
+-
+-    auto thi = reinterpret_cast<Filesystem*>(callbackState);
+-    auto path = thi->getPath(Chakra::GetString(arguments[1]));
+-    if (fs::is_directory(path)) {
+-        Chakra::ThrowError(L"Filesystem read: File is a directory");
+-        return JS_INVALID_REFERENCE;
+-    }
+-
+-    auto op = std::make_shared<FSAsyncOperation>(
+-        arguments[2],
+-        [](JsScript::AsyncOperation* op_) {
+-            auto op = reinterpret_cast<FSAsyncOperation*>(op_);
+-            std::ifstream ifs;
+-            std::wstringstream wss;
+-            ifs.open(op->path, std::ios::binary | std::ios::ate);
+-            int errn = 0;
+-            if (ifs.fail()) {
+-                errn = errno;
+-            } else {
+-                auto size = ifs.tellg();
+-                ifs.seekg(0, std::ios::beg);
+-
+-                op->data->resize(size);
+-                ifs.read((char*)op->data->data(), size);
+-            }
+-            ifs.close();
+-            op->err = errn;
+-            op->flagDone = true;
+-        },
+-        thi);
+-
+-    op->path = path;
+-    op->data = std::vector<uint8_t>();
+-    op->run();
+-
+-    thi->owner->pendingOperations.push_back(op);
+-    return undef;
+-}
+-
+-JsValueRef Filesystem::writeSync(JsValueRef callee, bool isConstructor, JsValueRef* arguments, unsigned short argCount,
+-                                 void* callbackState) {
+-    auto undef = Chakra::GetUndefined();
+-    if (!Chakra::VerifyArgCount(argCount, 3)) return undef;
+-    if (!Chakra::VerifyParameters({ { arguments[1], JsString }, { arguments[2], JsTypedArray } })) return undef;
+-
+-    auto thi = reinterpret_cast<Filesystem*>(callbackState);
+-
+-    std::wofstream ofs;
+-    ofs.open(thi->getPath(Chakra::GetString(arguments[1])), std::ios::binary | std::ios::out);
+-    if (ofs.fail()) {
+-        throwFsError();
+-        return undef;
+-    }
+-    BYTE* buf;
+-    unsigned int bufSize;
+-    JS::JsGetTypedArrayStorage(arguments[2], &buf, &bufSize, nullptr, nullptr);
+-
+-    for (size_t i = 0; i < bufSize; i++) {
+-        ofs << (char)buf[i];
+-    }
+-    ofs.close();
+-    ofs.flush();
+-    return undef;
+-}
+-
+-JsValueRef Filesystem::readSync(JsValueRef callee, bool isConstructor, JsValueRef* arguments, unsigned short argCount,
+-                                void* callbackState) {
+-    auto ret = Chakra::GetUndefined();
+-    if (!Chakra::VerifyArgCount(argCount, 2)) return ret;
+-    if (!Chakra::VerifyParameters({ { arguments[1], JsString } })) return ret;
+-    auto thi = reinterpret_cast<Filesystem*>(callbackState);
+-    auto path = thi->getPath(Chakra::GetString(arguments[1]));
+-    if (fs::is_directory(path)) {
+-        Chakra::ThrowError(L"Filesystem readSync: File is a directory");
+-        return JS_INVALID_REFERENCE;
+-    }
+-
+-    std::ifstream ifs;
+-
+-    ifs.open(path, std::ios::binary | std::ios::ate);
+-
+-    if (ifs.fail()) {
+-        throwFsError();
+-        return ret;
+-    } else {
+-        auto size = ifs.tellg();
+-        ifs.seekg(0, std::ios::beg);
+-        auto realSize = static_cast<unsigned>(size);
+-        JS::JsCreateTypedArray(JsArrayTypeUint8, JS_INVALID_REFERENCE, 0, static_cast<unsigned>(realSize), &ret);
+-        BYTE* buf;
+-        unsigned int sz;
+-        JsValueRef arrayBuffer;
+-
+-        JS::JsGetTypedArrayInfo(ret, nullptr, &arrayBuffer, nullptr, nullptr);
+-        JS::JsGetArrayBufferStorage(arrayBuffer, &buf, &sz);
+-        ifs.read((char*)buf, sz);
+-    }
+-    ifs.close();
+-    return ret;
+-}
+-
+-JsValueRef Filesystem::existsSync(JsValueRef callee, bool isConstructor, JsValueRef* arguments, unsigned short argCount,
+-                                  void* callbackState) {
+-    auto ret = Chakra::GetUndefined();
+-    if (!Chakra::VerifyArgCount(argCount, 2)) return ret;
+-    if (!Chakra::VerifyParameters({ { arguments[1], JsString } })) return ret;
+-    std::wifstream ifs;
+-    std::wstringstream wss;
+-    auto thi = reinterpret_cast<Filesystem*>(callbackState);
+-
+-    return fs::exists(thi->getPath(Chakra::GetString(arguments[1]))) ? Chakra::GetTrue() : Chakra::GetFalse();
+-}
+-
+-JsValueRef Filesystem::createDirectorySync(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                           unsigned short argCount, void* callbackState) {
+-    auto ret = Chakra::GetUndefined();
+-    if (!Chakra::VerifyArgCount(argCount, 2)) return ret;
+-    if (!Chakra::VerifyParameters({ { arguments[1], JsString } })) return ret;
+-
+-    auto thi = reinterpret_cast<Filesystem*>(callbackState);
+-    std::error_code errCode;
+-    if (!fs::create_directory(thi->getPath(Chakra::GetString(arguments[1])), errCode)) {
+-        if (errCode.value() != ERROR_ALREADY_EXISTS && errCode.value() != 0) {
+-            Chakra::ThrowError(L"Filesystem error: " + util::StrToWStr(errCode.message()));
+-        }
+-        return ret;
+-    }
+-    return ret;
+-}
+-
+-JsValueRef Filesystem::appendSync(JsValueRef callee, bool isConstructor, JsValueRef* arguments, unsigned short argCount,
+-                                  void* callbackState) {
+-    auto undef = Chakra::GetUndefined();
+-    if (!Chakra::VerifyArgCount(argCount, 3)) return undef;
+-    if (!Chakra::VerifyParameters({ { arguments[1], JsString }, { arguments[2], JsTypedArray } })) return undef;
+-
+-    auto thi = reinterpret_cast<Filesystem*>(callbackState);
+-
+-    std::wofstream ofs;
+-    ofs.open(thi->getPath(Chakra::GetString(arguments[1])), std::ios::app | std::ios::binary);
+-    if (ofs.fail()) {
+-        throwFsError();
+-        return undef;
+-    } else {
+-        BYTE* buf;
+-        unsigned int bufSize;
+-        JS::JsGetTypedArrayStorage(arguments[2], &buf, &bufSize, nullptr, nullptr);
+-
+-        for (size_t i = 0; i < bufSize; i++) {
+-            ofs << (char)buf[i];
+-        }
+-    }
+-    ofs.close();
+-    return undef;
+-}
+-
+-JsValueRef Filesystem::deleteFile(JsValueRef callee, bool isConstructor, JsValueRef* arguments, unsigned short argCount,
+-                                  void* callbackState) {
+-    auto ret = Chakra::GetUndefined();
+-    if (!Chakra::VerifyArgCount(argCount, 2)) return ret;
+-    if (!Chakra::VerifyParameters({ { arguments[1], JsString } })) return ret;
+-    std::wifstream ifs;
+-    std::wstringstream wss;
+-    auto thi = reinterpret_cast<Filesystem*>(callbackState);
+-
+-    auto path = thi->getPath(Chakra::GetString(arguments[1]));
+-    if (fs::exists(path)) {
+-        fs::remove(path);
+-    } else {
+-        errno = ENOENT;
+-        throwFsError();
+-        return JS_INVALID_REFERENCE;
+-    }
+-    return Chakra::GetUndefined();
+-}
+-
+-JsValueRef Filesystem::readdirSync(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
+-                                   unsigned short argCount, void* callbackState) {
+-    auto ret = Chakra::GetUndefined();
+-    if (!Chakra::VerifyArgCount(argCount, 2)) return ret;
+-    if (!Chakra::VerifyParameters({ { arguments[1], JsString } })) return ret;
+-    auto thi = reinterpret_cast<Filesystem*>(callbackState);
+-
+-    auto path = thi->getPath(Chakra::GetString(arguments[1]));
+-    if (!fs::is_directory(path)) {
+-        Chakra::ThrowError(L"Filesystem error: " + path + L": Not a directory");
+-        return JS_INVALID_REFERENCE;
+-    }
+-
+-    std::vector<std::wstring> entries;
+-
+-    for (auto& entry : fs::directory_iterator(path)) {
+-        entries.push_back(entry.path().filename());
+-    }
+-
+-    JsValueRef array;
+-    JS::JsCreateArray(entries.size(), &array);
+-
+-    for (size_t i = 0; auto& entry : entries) {
+-        JS::JsSetIndexedProperty(array, Chakra::MakeInt(i), Chakra::MakeString(entry));
+-        i++;
+-    }
+-
+-    return array;
+-}
+-
+-JsValueRef Filesystem::moveSync(JsValueRef callee, bool isConstructor, JsValueRef* arguments, unsigned short argCount,
+-                                void* callbackState) {
+-    auto ret = Chakra::GetUndefined();
+-    if (!Chakra::VerifyArgCount(argCount, 3)) return ret;
+-    if (!Chakra::VerifyParameters({ { arguments[1], JsString }, { arguments[1], JsString } })) return ret;
+-    std::wifstream ifs;
+-    std::wstringstream wss;
+-    auto thi = reinterpret_cast<Filesystem*>(callbackState);
+-
+-    auto path1 = thi->getPath(Chakra::GetString(arguments[1]));
+-    auto path2 = thi->getPath(Chakra::GetString(arguments[1]));
+-
+-    std::error_code errCode;
+-    fs::rename(path1, path2, errCode);
+-
+-    if (errCode.value() != ERROR_ALREADY_EXISTS && errCode.value() != 0) {
+-        Chakra::ThrowError(L"Filesystem error: " + util::StrToWStr(errCode.message()));
+-        return JS_INVALID_REFERENCE;
+-    }
+-
+-    return Chakra::GetUndefined();
+-}
+-
+-void Filesystem::FSAsyncOperation::getArgs() {
+-    JsValueRef err;
+-    JS::JsIntToNumber(this->err, &err);
+-    this->args.push_back(err);
+-    if (data.has_value() && outData) {
+-        JsValueRef jData;
+-
+-        JS::JsCreateTypedArray(JsArrayTypeUint8, JS_INVALID_REFERENCE, 0, static_cast<unsigned int>(data->size()),
+-                               &jData);
+-        BYTE* storage;
+-        unsigned int bufLen;
+-        JsTypedArrayType at;
+-        int elemSize;
+-        JS::JsGetTypedArrayStorage(jData, &storage, &bufLen, &at, &elemSize);
+-
+-        for (size_t i = 0; i < data->size(); ++i) {
+-            storage[i] = data->at(i);
+-        }
+-
+-        this->args.push_back(jData);
+-    }
+-}
++#include "pch.h"
++#include "Filesystem.h"
++#include <filesystem>
++#include <fstream>
++#include "../JsScript.h"
++#include "util/ChakraUtil.h"
++
++namespace fs = std::filesystem;
++
++JsValueRef Filesystem::initialize(JsValueRef parent) {
++    JsValueRef ret;
++    JS::JsCreateObject(&ret);
++
++    Chakra::DefineFunc(ret, write, L"writeAsync", this);
++    Chakra::DefineFunc(ret, writeSync, L"write", this);
++    Chakra::DefineFunc(ret, read, L"readAsync", this);
++    Chakra::DefineFunc(ret, readSync, L"read", this);
++    Chakra::DefineFunc(ret, existsSync, L"exists", this);
++    Chakra::DefineFunc(ret, createDirectorySync, L"createDirectory", this);
++    Chakra::DefineFunc(ret, appendSync, L"append", this);
++    Chakra::DefineFunc(ret, deleteFile, L"delete", this);
++    Chakra::DefineFunc(ret, readdirSync, L"readDirectory", this);
++    Chakra::DefineFunc(ret, moveSync, L"move", this);
++    return ret;
++}
++
++// Bedrock Horizons fork: plugin caches must not resolve into the game CWD.
++std::wstring Filesystem::getPath(std::wstring relPath) {
++    const fs::path requested(relPath);
++    return requested.is_absolute() ? requested.wstring()
++                                   : (owner->getFolderPath() / requested).wstring();
++}
++
++namespace {
++    void throwFsError() {
++        char st[100]; // idfk
++        strerror_s(st, sizeof(st), errno);
++        std::wstring wstr = util::StrToWStr(st);
++        Chakra::ThrowError(L"Filesystem error code " + std::to_wstring(errno) + L": " + wstr);
++    }
++}
++
++JsValueRef Filesystem::write(JsValueRef callee, bool isConstructor, JsValueRef* arguments, unsigned short argCount,
++                             void* callbackState) {
++    auto undef = Chakra::GetUndefined();
++    if (!Chakra::VerifyArgCount(argCount, 4)) return undef;
++    if (!Chakra::VerifyParameters(
++            { { arguments[1], JsString }, { arguments[2], JsTypedArray }, { arguments[3], JsFunction } }))
++        return undef;
++
++    auto thi = reinterpret_cast<Filesystem*>(callbackState);
++    auto op = std::make_shared<FSAsyncOperation>(
++        arguments[3],
++        [](JsScript::AsyncOperation* op_) {
++            auto op = reinterpret_cast<FSAsyncOperation*>(op_);
++            auto& arguments = op->params;
++            auto thi = reinterpret_cast<Filesystem*>(op->param);
++            std::wofstream ofs;
++            ofs.open(op->path, std::ios::out | std::ios::binary);
++            int errn = 0;
++            if (ofs.fail()) {
++                errn = errno;
++            } else {
++                for (size_t i = 0; i < op->data->size(); i++) {
++                    ofs << (char)op->data->data()[i];
++                }
++            }
++            ofs.close();
++            ofs.flush();
++            op->err = errn;
++            op->flagDone = true;
++        },
++        thi);
++
++    op->path = thi->getPath(Chakra::GetString(arguments[1]));
++    op->data = std::vector<BYTE>();
++
++    BYTE* buf;
++    unsigned int bufSize;
++    JS::JsGetTypedArrayStorage(arguments[2], &buf, &bufSize, nullptr, nullptr);
++
++    for (size_t i = 0; i < bufSize; i++) {
++        op->data->push_back(buf[i]);
++    }
++
++    op->outData = false;
++
++    op->run();
++
++    thi->owner->pendingOperations.push_back(op);
++    return undef;
++}
++
++JsValueRef Filesystem::read(JsValueRef callee, bool isConstructor, JsValueRef* arguments, unsigned short argCount,
++                            void* callbackState) {
++    auto undef = Chakra::GetUndefined();
++    if (!Chakra::VerifyArgCount(argCount, 3)) return undef;
++    if (!Chakra::VerifyParameters({ { arguments[1], JsString }, { arguments[2], JsFunction } })) return undef;
++
++    auto thi = reinterpret_cast<Filesystem*>(callbackState);
++    auto path = thi->getPath(Chakra::GetString(arguments[1]));
++    if (fs::is_directory(path)) {
++        Chakra::ThrowError(L"Filesystem read: File is a directory");
++        return JS_INVALID_REFERENCE;
++    }
++
++    auto op = std::make_shared<FSAsyncOperation>(
++        arguments[2],
++        [](JsScript::AsyncOperation* op_) {
++            auto op = reinterpret_cast<FSAsyncOperation*>(op_);
++            std::ifstream ifs;
++            std::wstringstream wss;
++            ifs.open(op->path, std::ios::binary | std::ios::ate);
++            int errn = 0;
++            if (ifs.fail()) {
++                errn = errno;
++            } else {
++                auto size = ifs.tellg();
++                ifs.seekg(0, std::ios::beg);
++
++                op->data->resize(size);
++                ifs.read((char*)op->data->data(), size);
++            }
++            ifs.close();
++            op->err = errn;
++            op->flagDone = true;
++        },
++        thi);
++
++    op->path = path;
++    op->data = std::vector<uint8_t>();
++    op->run();
++
++    thi->owner->pendingOperations.push_back(op);
++    return undef;
++}
++
++JsValueRef Filesystem::writeSync(JsValueRef callee, bool isConstructor, JsValueRef* arguments, unsigned short argCount,
++                                 void* callbackState) {
++    auto undef = Chakra::GetUndefined();
++    if (!Chakra::VerifyArgCount(argCount, 3)) return undef;
++    if (!Chakra::VerifyParameters({ { arguments[1], JsString }, { arguments[2], JsTypedArray } })) return undef;
++
++    auto thi = reinterpret_cast<Filesystem*>(callbackState);
++
++    std::wofstream ofs;
++    ofs.open(thi->getPath(Chakra::GetString(arguments[1])), std::ios::binary | std::ios::out);
++    if (ofs.fail()) {
++        throwFsError();
++        return undef;
++    }
++    BYTE* buf;
++    unsigned int bufSize;
++    JS::JsGetTypedArrayStorage(arguments[2], &buf, &bufSize, nullptr, nullptr);
++
++    for (size_t i = 0; i < bufSize; i++) {
++        ofs << (char)buf[i];
++    }
++    ofs.close();
++    ofs.flush();
++    return undef;
++}
++
++JsValueRef Filesystem::readSync(JsValueRef callee, bool isConstructor, JsValueRef* arguments, unsigned short argCount,
++                                void* callbackState) {
++    auto ret = Chakra::GetUndefined();
++    if (!Chakra::VerifyArgCount(argCount, 2)) return ret;
++    if (!Chakra::VerifyParameters({ { arguments[1], JsString } })) return ret;
++    auto thi = reinterpret_cast<Filesystem*>(callbackState);
++    auto path = thi->getPath(Chakra::GetString(arguments[1]));
++    if (fs::is_directory(path)) {
++        Chakra::ThrowError(L"Filesystem readSync: File is a directory");
++        return JS_INVALID_REFERENCE;
++    }
++
++    std::ifstream ifs;
++
++    ifs.open(path, std::ios::binary | std::ios::ate);
++
++    if (ifs.fail()) {
++        throwFsError();
++        return ret;
++    } else {
++        auto size = ifs.tellg();
++        ifs.seekg(0, std::ios::beg);
++        auto realSize = static_cast<unsigned>(size);
++        JS::JsCreateTypedArray(JsArrayTypeUint8, JS_INVALID_REFERENCE, 0, static_cast<unsigned>(realSize), &ret);
++        BYTE* buf;
++        unsigned int sz;
++        JsValueRef arrayBuffer;
++
++        JS::JsGetTypedArrayInfo(ret, nullptr, &arrayBuffer, nullptr, nullptr);
++        JS::JsGetArrayBufferStorage(arrayBuffer, &buf, &sz);
++        ifs.read((char*)buf, sz);
++    }
++    ifs.close();
++    return ret;
++}
++
++JsValueRef Filesystem::existsSync(JsValueRef callee, bool isConstructor, JsValueRef* arguments, unsigned short argCount,
++                                  void* callbackState) {
++    auto ret = Chakra::GetUndefined();
++    if (!Chakra::VerifyArgCount(argCount, 2)) return ret;
++    if (!Chakra::VerifyParameters({ { arguments[1], JsString } })) return ret;
++    std::wifstream ifs;
++    std::wstringstream wss;
++    auto thi = reinterpret_cast<Filesystem*>(callbackState);
++
++    return fs::exists(thi->getPath(Chakra::GetString(arguments[1]))) ? Chakra::GetTrue() : Chakra::GetFalse();
++}
++
++JsValueRef Filesystem::createDirectorySync(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                           unsigned short argCount, void* callbackState) {
++    auto ret = Chakra::GetUndefined();
++    if (!Chakra::VerifyArgCount(argCount, 2)) return ret;
++    if (!Chakra::VerifyParameters({ { arguments[1], JsString } })) return ret;
++
++    auto thi = reinterpret_cast<Filesystem*>(callbackState);
++    std::error_code errCode;
++    if (!fs::create_directory(thi->getPath(Chakra::GetString(arguments[1])), errCode)) {
++        if (errCode.value() != ERROR_ALREADY_EXISTS && errCode.value() != 0) {
++            Chakra::ThrowError(L"Filesystem error: " + util::StrToWStr(errCode.message()));
++        }
++        return ret;
++    }
++    return ret;
++}
++
++JsValueRef Filesystem::appendSync(JsValueRef callee, bool isConstructor, JsValueRef* arguments, unsigned short argCount,
++                                  void* callbackState) {
++    auto undef = Chakra::GetUndefined();
++    if (!Chakra::VerifyArgCount(argCount, 3)) return undef;
++    if (!Chakra::VerifyParameters({ { arguments[1], JsString }, { arguments[2], JsTypedArray } })) return undef;
++
++    auto thi = reinterpret_cast<Filesystem*>(callbackState);
++
++    std::wofstream ofs;
++    ofs.open(thi->getPath(Chakra::GetString(arguments[1])), std::ios::app | std::ios::binary);
++    if (ofs.fail()) {
++        throwFsError();
++        return undef;
++    } else {
++        BYTE* buf;
++        unsigned int bufSize;
++        JS::JsGetTypedArrayStorage(arguments[2], &buf, &bufSize, nullptr, nullptr);
++
++        for (size_t i = 0; i < bufSize; i++) {
++            ofs << (char)buf[i];
++        }
++    }
++    ofs.close();
++    return undef;
++}
++
++JsValueRef Filesystem::deleteFile(JsValueRef callee, bool isConstructor, JsValueRef* arguments, unsigned short argCount,
++                                  void* callbackState) {
++    auto ret = Chakra::GetUndefined();
++    if (!Chakra::VerifyArgCount(argCount, 2)) return ret;
++    if (!Chakra::VerifyParameters({ { arguments[1], JsString } })) return ret;
++    std::wifstream ifs;
++    std::wstringstream wss;
++    auto thi = reinterpret_cast<Filesystem*>(callbackState);
++
++    auto path = thi->getPath(Chakra::GetString(arguments[1]));
++    if (fs::exists(path)) {
++        fs::remove(path);
++    } else {
++        errno = ENOENT;
++        throwFsError();
++        return JS_INVALID_REFERENCE;
++    }
++    return Chakra::GetUndefined();
++}
++
++JsValueRef Filesystem::readdirSync(JsValueRef callee, bool isConstructor, JsValueRef* arguments,
++                                   unsigned short argCount, void* callbackState) {
++    auto ret = Chakra::GetUndefined();
++    if (!Chakra::VerifyArgCount(argCount, 2)) return ret;
++    if (!Chakra::VerifyParameters({ { arguments[1], JsString } })) return ret;
++    auto thi = reinterpret_cast<Filesystem*>(callbackState);
++
++    auto path = thi->getPath(Chakra::GetString(arguments[1]));
++    if (!fs::is_directory(path)) {
++        Chakra::ThrowError(L"Filesystem error: " + path + L": Not a directory");
++        return JS_INVALID_REFERENCE;
++    }
++
++    std::vector<std::wstring> entries;
++
++    for (auto& entry : fs::directory_iterator(path)) {
++        entries.push_back(entry.path().filename());
++    }
++
++    JsValueRef array;
++    JS::JsCreateArray(entries.size(), &array);
++
++    for (size_t i = 0; auto& entry : entries) {
++        JS::JsSetIndexedProperty(array, Chakra::MakeInt(i), Chakra::MakeString(entry));
++        i++;
++    }
++
++    return array;
++}
++
++JsValueRef Filesystem::moveSync(JsValueRef callee, bool isConstructor, JsValueRef* arguments, unsigned short argCount,
++                                void* callbackState) {
++    auto ret = Chakra::GetUndefined();
++    if (!Chakra::VerifyArgCount(argCount, 3)) return ret;
++    if (!Chakra::VerifyParameters({ { arguments[1], JsString }, { arguments[1], JsString } })) return ret;
++    std::wifstream ifs;
++    std::wstringstream wss;
++    auto thi = reinterpret_cast<Filesystem*>(callbackState);
++
++    auto path1 = thi->getPath(Chakra::GetString(arguments[1]));
++    auto path2 = thi->getPath(Chakra::GetString(arguments[1]));
++
++    std::error_code errCode;
++    fs::rename(path1, path2, errCode);
++
++    if (errCode.value() != ERROR_ALREADY_EXISTS && errCode.value() != 0) {
++        Chakra::ThrowError(L"Filesystem error: " + util::StrToWStr(errCode.message()));
++        return JS_INVALID_REFERENCE;
++    }
++
++    return Chakra::GetUndefined();
++}
++
++void Filesystem::FSAsyncOperation::getArgs() {
++    JsValueRef err;
++    JS::JsIntToNumber(this->err, &err);
++    this->args.push_back(err);
++    if (data.has_value() && outData) {
++        JsValueRef jData;
++
++        JS::JsCreateTypedArray(JsArrayTypeUint8, JS_INVALID_REFERENCE, 0, static_cast<unsigned int>(data->size()),
++                               &jData);
++        BYTE* storage;
++        unsigned int bufLen;
++        JsTypedArrayType at;
++        int elemSize;
++        JS::JsGetTypedArrayStorage(jData, &storage, &bufLen, &at, &elemSize);
++
++        for (size_t i = 0; i < data->size(); ++i) {
++            storage[i] = data->at(i);
++        }
++
++        this->args.push_back(jData);
++    }
++}

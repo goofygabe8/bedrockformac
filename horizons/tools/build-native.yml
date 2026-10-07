@@ -1,0 +1,55 @@
+name: Build experimental Bedrock Horizons
+
+on:
+  push:
+    branches: [codex/bedrock-horizons]
+    paths:
+      - 'horizons/**'
+      - '.github/workflows/bedrock-horizons.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Fetch pinned native source
+        shell: pwsh
+        run: |
+          git clone --no-checkout https://github.com/LatiteClient/Latite.git native-source
+          if ($LASTEXITCODE -ne 0) { throw 'Native source download failed' }
+          git -C native-source checkout --detach 9f7463515dd298a496da918285936d78c7416aad
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned native checkout failed' }
+          python horizons/latite-bridge/apply_bridge.py native-source
+          if ($LASTEXITCODE -ne 0) { throw 'Native bridge application failed' }
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - uses: seanmiddleditch/gha-setup-ninja@v3
+      - name: Configure and compile native DLL
+        shell: pwsh
+        run: |
+          $env:PATH = "C:\msys64\mingw64\bin;" + $env:PATH
+          $env:CC = 'cl.exe'
+          $env:CXX = 'cl.exe'
+          cmake -S native-source -B native-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl.exe -DCMAKE_CXX_COMPILER=cl.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Native configure failed' }
+          cmake --build native-build --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'Native compilation failed' }
+      - name: Package corresponding source and build metadata
+        shell: pwsh
+        run: |
+          python horizons/tools/archive_native.py native-source native-build artifacts
+          if ($LASTEXITCODE -ne 0) { throw 'Native packaging failed' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Bedrock-Horizons-native-experimental
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 30
