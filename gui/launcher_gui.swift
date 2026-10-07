@@ -4,7 +4,7 @@ import CoreGraphics
 import Darwin
 
 // The update builder sets this before compiling each release.
-let launcherVersion = "0.5.0"
+let launcherVersion = "0.5.1"
 
 func pixelFont(_ size: CGFloat) -> NSFont { NSFont(name: "Monocraft", size: size) ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular) }
 func rgb(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> NSColor { NSColor(calibratedRed: r/255, green: g/255, blue: b/255, alpha: 1) }
@@ -612,6 +612,12 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
             try process.run(); frameGenerationProcess = process
             frameGenerationStatus.stringValue = "Preparing frame generation…"; setBusy(busy)
             DispatchQueue.global(qos: .userInitiated).async {
+                let logURL = self.root.appendingPathComponent(".gui-logs/frame-generation.log")
+                try? FileManager.default.createDirectory(at: logURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                FileManager.default.createFile(atPath: logURL.path, contents: nil, attributes: [.posixPermissions: 0o600])
+                let log = try? FileHandle(forWritingTo: logURL)
+                defer { try? log?.close() }
+                var loggedBytes = 0
                 var pending = Data(); var reportedError = false
                 while true {
                     let chunk = pipe.fileHandleForReading.availableData
@@ -620,6 +626,11 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     while let end = pending.firstIndex(of: 10) {
                         let line = pending.subdata(in: 0..<end); pending.removeSubrange(0...end)
                         guard let data = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { continue }
+                        // Only helper status and numeric diagnostics are logged.
+                        // No capture images, audio, or game/account logs are read.
+                        if loggedBytes + line.count + 1 <= 524288 {
+                            try? log?.write(contentsOf: line + Data([10])); loggedBytes += line.count + 1
+                        }
                         let kind = data["kind"] as? String ?? ""
                         if kind == "error" || kind == "permission" { reportedError = true }
                         let failed = reportedError
