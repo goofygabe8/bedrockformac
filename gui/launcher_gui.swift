@@ -4,7 +4,7 @@ import CoreGraphics
 import Darwin
 
 // The update builder sets this before compiling each release.
-let launcherVersion = "0.5.2"
+let launcherVersion = "0.5.3"
 
 func launcherExecutable(_ root: URL) -> URL {
     if Bundle.main.bundleIdentifier == "dev.bedrockformac.launcher", let executable = Bundle.main.executableURL { return executable }
@@ -389,9 +389,12 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
                                     row([highResolution, button("Settings…", #selector(settingsAction))]),
                                     row([showGameButton, closeGameButton, button("Open Game Logs", #selector(logsAction))])])
         let devices = section("CONTROLLER & AUDIO", [controller, row([button("Refresh Controllers", #selector(refreshAction)), button("Audio Output…", #selector(audioAction))])])
+        let addonHelp = NSTextField(wrappingLabelWithString: "Install downloaded Bedrock packs into your Windows game. Close Minecraft before importing, then activate packs in the game's world settings. Realm packs require the Realm owner.")
+        addonHelp.font = pixelFont(10); addonHelp.textColor = .secondaryLabelColor
+        let addons = section("ADD-ONS", [row([button("Install Add-ons…", #selector(addonsAction)), button("Installed Packs…", #selector(addonsListAction)), button("Packs Folder", #selector(addonsFolderAction))]), addonHelp])
         let updates = section("UPDATES", [row([updateLabel, updateButton, button("Open Releases", #selector(releasesAction))])])
         let interpolation = section("FRAME GENERATION / EXPERIMENTAL", [row([frameGenerationRate, frameGenerationButton]), frameGenerationStatus])
-        let stack = NSStackView(views: [title, subtitle, row([account, signIn]), game, devices, interpolation, updates, row([spinner, status])])
+        let stack = NSStackView(views: [title, subtitle, row([account, signIn]), game, addons, devices, interpolation, updates, row([spinner, status])])
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 12
         stack.translatesAutoresizingMaskIntoConstraints = false
         let scroll = NSScrollView(); scroll.hasVerticalScroller = true; scroll.drawsBackground = false
@@ -409,6 +412,7 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
             stack.topAnchor.constraint(equalTo: document.topAnchor, constant: 28),
             stack.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -28),
             game.widthAnchor.constraint(equalTo: stack.widthAnchor), devices.widthAnchor.constraint(equalTo: stack.widthAnchor), updates.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            addons.widthAnchor.constraint(equalTo: stack.widthAnchor), addonHelp.widthAnchor.constraint(equalTo: addons.widthAnchor, constant: -36),
             interpolation.widthAnchor.constraint(equalTo: stack.widthAnchor), frameGenerationStatus.widthAnchor.constraint(equalTo: interpolation.widthAnchor, constant: -36),
             status.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -32)])
         let menu = NSMenu()
@@ -543,6 +547,17 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if action == "settings-save" {
             settingsEditor?.finish(success, message: data["message"] as? String ?? "Could not save settings.")
         }
+        if action == "addons-list", success {
+            let packs = data["packs"] as? [[String: Any]] ?? []
+            let lines = packs.map { pack -> String in
+                let version = (pack["version"] as? [Int] ?? []).map(String.init).joined(separator: ".")
+                return (pack["name"] as? String ?? "Pack") + "\n" + (pack["type"] as? String ?? "") + " • v" + version
+            }
+            showAddonDetails(title: "Installed Packs", text: lines.isEmpty ? "No installed packs yet. Choose Install Add-ons to import a downloaded Bedrock pack." : lines.joined(separator: "\n\n"))
+        }
+        if action == "addons-install" {
+            showAddonDetails(title: success ? "Add-ons Ready" : "Could Not Install Add-ons", text: data["message"] as? String ?? "Installation did not finish.")
+        }
         if action == "play" {
             gameTimer?.invalidate(); gameTimer = nil; gamePID = nil
             runningGame = false; gameLaunching = false; playTaskActive = false
@@ -561,6 +576,39 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc func accountAction() { run(authenticated ? "logout" : "login") }
     @objc func refreshAction() { run("status") }
     @objc func audioAction() { run("audio") }
+    @objc func addonsAction() {
+        if runningGame || gameLaunching {
+            status.stringValue = "Close Minecraft and finish saving before installing add-ons."
+            return
+        }
+        let picker = NSOpenPanel()
+        picker.title = "Install Minecraft Bedrock Add-ons"
+        picker.message = "Choose .mcpack, .mcaddon, or a ZIP containing Bedrock packs."
+        picker.prompt = "Install"
+        picker.allowedFileTypes = ["mcpack", "mcaddon", "zip"]
+        picker.allowsMultipleSelection = true; picker.canChooseDirectories = false
+        picker.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        picker.beginSheetModal(for: window) { response in
+            if response == .OK { self.run("addons-install", picker.urls.map { $0.path }) }
+        }
+    }
+    @objc func addonsListAction() { run("addons-list") }
+    @objc func addonsFolderAction() { run("addons-folder") }
+    func showAddonDetails(title: String, text: String) {
+        let alert = NSAlert(); alert.messageText = title
+        alert.informativeText = "Packs become available when Minecraft starts. Activate them inside Minecraft."
+        if title == "Could Not Install Add-ons" { alert.informativeText = "Resolve the issue below and try again." }
+        alert.addButton(withTitle: "OK")
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 540, height: 220))
+        scroll.hasVerticalScroller = true; scroll.borderType = .bezelBorder
+        let view = NSTextView(frame: scroll.bounds)
+        view.isEditable = false; view.isSelectable = true; view.font = pixelFont(11)
+        view.textContainerInset = NSSize(width: 10, height: 10)
+        view.isVerticallyResizable = true; view.autoresizingMask = [.width]
+        view.textContainer?.widthTracksTextView = true
+        view.string = text; scroll.documentView = view; alert.accessoryView = scroll
+        alert.beginSheetModal(for: window)
+    }
     @objc func updateAction() {
         if let editor = settingsEditor, editor.window.isVisible {
             status.stringValue = "Save or close Settings before updating the launcher."

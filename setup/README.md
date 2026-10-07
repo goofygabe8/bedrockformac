@@ -72,3 +72,13 @@ The update builder packages code and GUI assets with patches against the origina
 ## Credits
 
 The pixel typeface is [Monocraft](https://github.com/IdreesInc/Monocraft), by Idrees Hassan and contributors, distributed under the SIL Open Font License included with the app. The setup and update code and the grass-block icon in this repository are distributed under the MIT license. Upstream software retains its own licensing.
+
+## Installing add-ons
+
+The launcher’s **ADD-ONS** section installs downloaded `.mcpack`, `.mcaddon`, and Bedrock pack `.zip` files directly into this Windows Minecraft instance. Close Minecraft and finish saving, choose **Install Add-ons…**, select one or several files, and press **Install**. A combined add-on installs its resource and behavior packs together. **Installed Packs…** lists names, types, and versions; **Packs Folder** opens the shared Minecraft data folder.
+
+Start Minecraft, then activate packs in a world's **Resource Packs / Behavior Packs** settings. Texture packs can also be activated under **Settings → Global Resources** when the pack permits it. Both halves of an add-on may need activation. The Realm owner activates behavior packs on a Realm; installing a client pack does not change someone else's Realm. Dependencies, experimental features, and pack/game compatibility remain Minecraft's responsibility. Java `.jar` mods and world imports are not supported by this installer.
+
+Higher pack versions replace older copies with the same identifier; equal or older versions are skipped. Replaced packs are kept in `.addon-backups` beside the Wine bottle. Files are staged before installation, archives have path/size limits, and failed replacements are rolled back. Worlds and their pack activation settings are not edited. This feature is compiled and packaged, but has not been checked with an in-game import yet.
+
+Pack storage follows [Microsoft's GDK folder layout](https://learn.microsoft.com/en-us/minecraft/creator/documents/gdkpcprojectfolder?view=minecraft-bedrock-stable) and [pack manifest types and versions](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/addonsreference/packmanifest?view=minecraft-bedrock-stable).

@@ -279,6 +279,21 @@ def main():
     elif action == 'settings':
         from launcher_settings import settings
         emit('result', ok=True, **settings(PREFIX))
+    elif action == 'addons-install':
+        def check_game_closed():
+            if games():
+                raise RuntimeError('Close Minecraft before installing add-ons so it can reload the packs. Use Close Game and finish saving first.')
+        check_game_closed()
+        from addon_installer import install
+        emit('result', ok=True, **install(PREFIX, sys.argv[2:], lambda message: emit('progress', message=message), check_game_closed))
+    elif action == 'addons-list':
+        from addon_installer import shared_store, installed_packs
+        emit('result', ok=True, packs=[info for _, info in installed_packs(shared_store(PREFIX))],
+             message='Installed add-ons are listed in the pack window.')
+    elif action == 'addons-folder':
+        from addon_installer import shared_store
+        execute(['/usr/bin/open', shared_store(PREFIX)], timeout=10)
+        emit('result', ok=True, message='Opened the Minecraft data folder. Packs are in resource_packs, behavior_packs, and skin_packs.')
     elif action in ('settings-save', 'high-resolution'):
         from launcher_settings import save_settings, settings
         save_settings(json.loads(sys.argv[2]))
