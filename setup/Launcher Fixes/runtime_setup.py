@@ -210,3 +210,5 @@ def ensure_wine_input(prefix, wine_command):
         header = "Windows Registry Editor Version 5.00"
         sections = [fragment.partition("\n")[2].lstrip() for fragment in missing_registry]
         _import_registry(prefix, wine_command, header + "\n\n" + "\n\n".join(sections))
+    from text_input_fix import ensure_text_input
+    ensure_text_input(Path(__file__).resolve().parent, prefix)

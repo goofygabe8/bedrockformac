@@ -29,6 +29,12 @@ The launcher defaults to D3DMetal's Metal 3 backend. Metal 4 remains an experime
 
 Choose your anti-aliasing level in Minecraft's Video settings when using Simple or Fancy graphics. Vibrant Visuals has different controls and can hide that slider. The launcher preserves your graphics preferences; updating does not force a new anti-aliasing level.
 
+## Text entry compatibility
+
+The launcher prepares a desktop fallback for Windows’ on-screen input pane before each game start. The bundled Wine runtime returned “not implemented” when Minecraft focused inventory/crafting search; the user also reported crashes entering sign text. The compatibility patch lets the input-pane request decline without an API error, for physical keyboard use.
+
+This applies to the pinned WineForge runtime only. Original DLLs are backed up locally, and unrecognized runtime binaries are left untouched. The patch changes three CoreInputView3 methods and retains the original stack/unwind metadata. The reported search and sign behavior still needs confirmation after a game restart. See [Microsoft’s API contract](https://learn.microsoft.com/en-us/uwp/api/windows.ui.viewmanagement.core.coreinputview.tryshow) and the [Wine implementation](https://github.com/wine-mirror/wine/blob/master/dlls/windows.ui.core.textinput/main.c).
+
 ## Updates and existing installations
 
 The app checks this repository's latest public release every time it starts, deferring installation while Minecraft is open. After an update, it opens the updated launcher automatically and closes the old window once the new window is ready. The displayed version identifies the running launcher. An older window with newer files already on disk is also reopened when it checks for updates. Downloads and files are verified against SHA-256 checksums. Offline checks allow the installed launcher to open. Game data is outside the update payload, and previous launcher code is kept for rollback.
@@ -39,7 +45,7 @@ The smaller **bedrock-mac-update.zip** asset is for the automatic updater. The *
 
 ## Publishing another fix
 
-After changing your local launcher, open **Build Launcher Update.command**, enter a new version (for example `0.4.2`), and upload the generated **bedrock-mac-update.zip** to a public GitHub Release tagged `v0.4.2`. Keep the asset name exactly `bedrock-mac-update.zip`. Changed Swift window code is compiled when building. Recipients receive your update on their next app launch.
+After changing your local launcher, open **Build Launcher Update.command**, enter a new version (for example `0.4.3`), and upload the generated **bedrock-mac-update.zip** to a public GitHub Release tagged `v0.4.3`. Keep the asset name exactly `bedrock-mac-update.zip`. Changed Swift window code is compiled when building. Recipients receive your update on their next app launch.
 
 The update builder packages code and GUI assets with patches against the original launcher source saved locally. It excludes accounts, worlds, Wine prefixes, game files, and upstream runtime files.
 
