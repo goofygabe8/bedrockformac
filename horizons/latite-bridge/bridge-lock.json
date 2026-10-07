@@ -50,7 +50,7 @@
       "matches": 1
     }
   },
-  "runtime_validation": "not performed",
+  "runtime_validation": "Native 0.1.1 crashed at startup three times. Disabling it restored world loading. Native 0.1.2 handles optional WinRT trust errors and per-plugin startup errors; corrected in-game operation remains unconfirmed.",
   "released_dll": {
     "tag": "v2.9.1",
     "published_at": "2026-08-15T21:51:47Z",
@@ -89,7 +89,7 @@
   "filesystem": "Relative plugin paths always resolve to the plugin directory, preventing CWD cache collisions; absolute paths retain upstream behavior.",
   "native_compile": {
     "status": "success",
-    "url": "https://github.com/goofygabe8/bedrockformac/actions/runs/37683878487",
+    "url": "https://github.com/goofygabe8/bedrockformac/actions/runs/37702220340",
     "gameplay_validation": false
   },
   "startup_compatibility": "Optional online plugin trust failures retain untrusted permissions instead of terminating Minecraft. Per-plugin WinRT/C++ startup errors are logged and skip that plugin."
