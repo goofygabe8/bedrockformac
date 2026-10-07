@@ -23,7 +23,7 @@ Connect your gamepad before Play, then use Refresh Controllers to check detectio
 
 The app checks this repository's latest public release every time it starts. Downloads and files are verified against SHA-256 checksums. Offline checks allow the installed launcher to open. Game data is outside the update payload, and previous launcher code is kept for rollback.
 
-If you already used the command-based setup, start it to receive the update. Your following start opens the graphical window. A **Minecraft Bedrock.app** appears in your existing launcher folder; drag that app into Applications to keep using that installation's game data. The old command remains a launch shortcut.
+If you already used the command-based setup, start it to receive the update. Your following start opens the graphical window. The updater installs a single **Minecraft Bedrock.app** in Applications while retaining your existing game-data folder. The old command remains a launch shortcut.
 
 The smaller **bedrock-mac-update.zip** asset is for the automatic updater. The **Minecraft-Bedrock-Mac-Fixed-Setup.zip** asset is the command-based installation alternative. For sharing a new installation, send **Bedrock-for-Mac.dmg**.
 

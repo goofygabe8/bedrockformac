@@ -72,5 +72,5 @@ python3 "$INSTALL_DIR/update_client.py" --ensure-gui
 
 print ""
 print "Installed: $INSTALL_DIR"
-print "Open 'Minecraft Bedrock.app' there, sign in with the recipient's own Microsoft account, and download Minecraft; the newest release is selected by default."
+print "Open 'Minecraft Bedrock.app' from Applications, sign in with the recipient's own Microsoft account, and download Minecraft; the newest release is selected by default."
 print "The first Play prepares the new Wine input devices and controller runtime."
